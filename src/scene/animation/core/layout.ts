@@ -11,8 +11,6 @@
  * correct at any board scale, on any screen, forever.
  */
 
-import type { PlayerId } from '../../../game/types';
-
 export interface SceneLayout {
   /**
    * Centre-to-centre distance between two adjacent playing spaces, in world
@@ -28,13 +26,19 @@ export interface SceneLayout {
   surfaceY: number;
 
   /**
-   * Compass angle of each player's storage arm, in radians, measured in the
-   * board plane. The turn sweep travels between these, so it has to match what
-   * is actually on screen.
+   * Angle of each colour's storage arm, in radians, indexed by colour.
    *
-   * Board order is clockwise Purple(N) -> Red(E) -> Green(S) -> Blue(W), but
-   * `PlayerId` is indexed by the colour table in `game/types.ts`, and the two
-   * orders are NOT the same. The scene owns the mapping; we just read it.
+   * The convention is `theta = Math.atan2(armX, armZ)`, i.e. theta = 0 points
+   * at +Z and rotates toward +X. So the arm centre is at
+   * `(sin(theta) * armRadius, cos(theta) * armRadius)`, which is exactly how
+   * `playPlacement` reconstructs it when flying a remote player's piece in.
+   *
+   * `scene/Board.tsx` places the arms at NORTH = -Z, EAST = +X, SOUTH = +Z,
+   * WEST = -X, and colours are numbered purple(N) red(E) green(S) blue(W), so
+   * the correct values are [PI, PI/2, 0, -PI/2]. Note that north is PI, not 0 —
+   * getting this backwards silently sends every remote piece in from the wrong
+   * side of the table, which still looks plausible and is therefore easy to
+   * miss.
    */
   armAngle: [number, number, number, number];
 
@@ -55,12 +59,13 @@ export interface SceneLayout {
  * board is ever rescaled only that one call has to change.
  *
  * The arm angles are North, East, South, West, which is exactly `PlayerId`
- * order — purple(N), red(E), green(S), blue(W) — per RULES.md §4.8.
+ * order — purple(N), red(E), green(S), blue(W) — per RULES.md §4.8, resolved
+ * against Board.tsx's actual axes (north is -Z).
  */
 const DEFAULT: SceneLayout = {
   spacePitch: 1,
   surfaceY: 0.26,
-  armAngle: [0, Math.PI / 2, Math.PI, -Math.PI / 2],
+  armAngle: [Math.PI, Math.PI / 2, 0, -Math.PI / 2],
   armRadius: 2.12,
 };
 
@@ -83,7 +88,7 @@ export function u(fraction: number): number {
 }
 
 /** Arm angle for a colour, in radians. */
-export function armAngleOf(player: PlayerId): number {
+export function armAngleOf(player: number): number {
   return LAYOUT.armAngle[player] ?? 0;
 }
 

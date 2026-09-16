@@ -68,6 +68,7 @@ import { PROTOCOL_VERSION } from '../../src/net/protocol.ts';
 import { RoomRegistry } from './rooms.ts';
 import { CLOSE, HEARTBEAT_INTERVAL_MS, Session, buildCapabilities } from './session.ts';
 import type { Socket } from './session.ts';
+import { MAX_SIGNAL_BYTES, SignalingRelay } from './signal.ts';
 import { Logger, loadConfig, shortId } from './util.ts';
 import { MAX_MESSAGE_BYTES } from './validate.ts';
 
@@ -129,6 +130,8 @@ async function main(): Promise<void> {
         protocolVersion: PROTOCOL_VERSION,
         rooms: registry.size,
         connections: sessions.size,
+        signalRooms: relay.roomCount,
+        signalPeers: relay.peerCount,
         uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
       });
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -138,7 +141,12 @@ async function main(): Promise<void> {
 
     if (url === '/') {
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('otrio game server\nWebSocket endpoint: same host, path /ws or /\n');
+      res.end(
+        'otrio game server\n' +
+          '  /ws or /   authoritative game socket (hosted backend)\n' +
+          '  /signal    WebRTC signalling relay (peer-to-peer backend)\n' +
+          '  /healthz   health check\n',
+      );
       return;
     }
 
@@ -150,6 +158,11 @@ async function main(): Promise<void> {
    * WebSocket
    * ---------------------------------------------------------------------- */
 
+  // Two servers, not one, because the two protocols need different payload
+  // caps: a game move is a few hundred bytes and is held to a tight 4 KB, while
+  // an SDP offer with a full candidate list runs to several kilobytes and would
+  // be truncated by that cap. `maxPayload` is per-server, so the split is the
+  // only way to hold each to its own limit.
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_MESSAGE_BYTES,
@@ -158,6 +171,16 @@ async function main(): Promise<void> {
     // saves in bandwidth, and its zlib buffers are a known leak source.
     perMessageDeflate: false,
   });
+
+  const signalWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_SIGNAL_BYTES,
+    perMessageDeflate: false,
+  });
+
+  const relay = new SignalingRelay(log);
+  relay.start();
+  signalWss.on('connection', (ws: WebSocket) => relay.attach(ws));
 
   const sessions = new Map<WebSocket, Session>();
 
@@ -173,9 +196,30 @@ async function main(): Promise<void> {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
-    });
+    // Route by path. Accepting every path as a game socket is what made the
+    // peer-to-peer backend fail in the most confusing way possible: `/signal`
+    // was handed to the game protocol, which answered a `join` frame with
+    // `INTERNAL: unknown message type "join"` — a missing feature wearing the
+    // costume of a runtime bug. An unknown path is now refused outright.
+    const path = (req.url ?? '/').split('?')[0].replace(/\/+$/, '') || '/';
+
+    if (path === '/signal') {
+      signalWss.handleUpgrade(req, socket, head, (ws) => {
+        signalWss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    if (path === '/' || path === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+      return;
+    }
+
+    log.warn('upgrade rejected: unknown path', { path });
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
   });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
@@ -262,6 +306,8 @@ async function main(): Promise<void> {
 
     clearInterval(heartbeat);
     registry.stop();
+    relay.stop();
+    relay.closeAll('server is restarting');
     // Tell everyone why, so clients show "server restarting" rather than
     // silently retrying into a closed port.
     registry.closeAll('server is restarting');
@@ -270,6 +316,7 @@ async function main(): Promise<void> {
       ws.terminate();
     }
     wss.close();
+    signalWss.close();
     httpServer.close(() => process.exit(0));
 
     // A PaaS typically allows ~10s between SIGTERM and SIGKILL. Do not be the

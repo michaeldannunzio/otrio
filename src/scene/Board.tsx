@@ -227,59 +227,46 @@ export type ThemeMode = 'light' | 'dark';
  *   - THIS is canonical for the 3D board material.
  *   - `styles/tokens.ts` `boardBase`/`boardLine` stay canonical for 2D chrome.
  *
- * WHY THESE VALUES. The four player hues (purple #7237b8, red #e8501e, green
- * #a2d733, blue #1cafd2) straddle the middle of the luminance range, so a
- * mid-tone board is the worst possible backdrop for them — every hue lands near
- * its luminance and the pieces stop having silhouettes in greyscale. Sweeping
- * the bamboo hue ray and taking the worst-case piece-against-board contrast:
+ * WHY THESE VALUES. The constraint that sets them is the piece OUTLINE, not the
+ * board. `Piece`/`materials` draw an inverted-hull rim in `players[i].rim` with
+ * `toneMapped: false`, so the rim renders at a literal sRGB value while the
+ * board is lit — and that rim is what makes a piece's silhouette perceivable.
+ * Its floor is 3:1. That floor is an accessibility guarantee, not a preference,
+ * so it is what caps how light this can go.
  *
- *     tint      L*     worst piece contrast
- *     #c9a074   68.6   1.08:1   <- the obvious "carbonized bamboo" tint. Awful.
- *     #886c4e   47.6   1.30:1
- *     #584633   31.1   1.26:1
- *     #3a2c1e   19.2   1.89:1
- *     #2a2016   13.1   2.24:1
- *     #18130e    6.2   2.60:1
+ * Measured against the light-coloured rim set (tokens.ts dark.playerNRim —
+ * #a46dde #ef6b3e #bbe660 #5bbddb), sweeping the bamboo hue ray:
  *
- * Monotonic: darker is better, and it keeps getting better past the point where
- * the board stops looking like wood. So these sit at the knee — dark enough
- * that no player hue disappears, light enough that the grain still reads.
+ *     tint      L*     worst rim contrast
+ *     #33261a   16.3   4.06:1
+ *     #3f3123   21.5   3.48:1   <- dark
+ *     #453626   23.8   3.22:1   <- light
+ *     #493a2a   25.6   3.03:1   <- the ceiling. Past here the rim fails.
+ *     #584633   31.1   2.49:1   BELOW FLOOR
+ *     #c9a074   68.6   1.13:1   BELOW FLOOR
  *
- * This is also the more faithful reading of the source. textures.ts's own note
- * says carbonizing "darkens the sugars"; the deluxe board is a dark board.
+ * So: as light as the outline allows, and not one step further. An earlier pass
+ * put these much darker (L* 13-16) because the rim did not exist yet and the
+ * piece FILL was carrying the silhouette alone; that constraint expired when
+ * the rim landed, and these values are the relaxed ones.
  *
- * Dark mode goes a shade darker still, which is the opposite of what you would
- * guess given its dimmer rig. The reason is that the theme lifts the pieces
- * there instead — `SceneTheme.piece.emissiveIntensity` is non-zero in dark
- * mode, specifically "so saturated colours do not sink into the dark board".
- * The pieces get the help, so the board does not need it and can keep the
- * contrast.
+ * It is still a multiply over a real bamboo scan, so the ceiling is doing two
+ * jobs: past roughly L* 26 the rim fails AND the tint starts bleaching the
+ * grain out of the albedo. Keep it warm rather than pale.
  *
- * Measured against what the board actually sits on, the baize (#2c6647, L* 39),
- * both tints give the slab a 2.2:1 silhouette — a dark object on a mid cloth.
- *
- * NOTE THE CEILING. 2.2:1 is still below the 3:1 a silhouette needs. No board
- * colour can fix that for four hues at once — which is precisely why
- * `PlayerColors.rim` exists. The rim is the accessibility guarantee; the board
- * tint only decides how much work it has to do.
- *
- * Measured rim contrast against these tints, for whoever owns the rim palette
- * (purple is the binding case at both ends):
- *
- *                      purple   red   green   blue
- *     light #33261a     1.65    3.15   4.39   4.37
- *     dark  #2a2016     1.80    3.43   4.78   4.76
- *
- * `styles/README.md` derives dark rims against a walnut #4a3a28 board, which is
- * not what the scene renders and never will be. That is the worst possible
- * reference: the purple rim #602f99 is L* 31.4 and the walnut is L* 25.7, so
- * they sit almost on top of each other at 1.23:1. Both tints above move away
- * from it. Re-derive against these.
+ * KNOWN GAP, NOT MINE TO FIX. The above uses the light-coloured rim set. The
+ * LIGHT theme currently ships the dark-coloured set (tokens.ts light.playerNRim
+ * — #602f99 etc.), which was derived against `scene.board.base` #f0f3f8, a
+ * near-white surface. Against this board it gives purple 1.31:1. And it cannot
+ * be fixed from here: sweeping the entire bamboo ray, that set never exceeds
+ * 2.18:1 anywhere, because purple's rim (L* 31.4) wants a light board and
+ * green's (L* 58.5) wants a dark one. The light theme needs light rims over a
+ * wooden board, exactly as the dark theme already does. Owner: theming.
  */
 export const BOARD_TINTS: Readonly<Record<ThemeMode, { base: string; line: string }>> = {
-  //                                            worst piece contrast | vs baize
-  light: { base: '#33261a', line: '#6b5336' }, //          2.06:1    |  2.16:1
-  dark: { base: '#2a2016', line: '#54402a' }, //           2.24:1    |  2.35:1
+  //                                            L*     rim floor (light-coloured rim set)
+  light: { base: '#453626', line: '#8a6c47' }, // 23.8   3.22:1
+  dark: { base: '#3f3123', line: '#6b5336' }, //  21.5   3.48:1
 };
 
 /**
@@ -366,6 +353,30 @@ export const SEAT_COLOUR_NAMES: readonly ['purple', 'red', 'green', 'blue'] = [
 export function boardYawForSeat(seat: Seat): number {
   return ((seat - SOUTH) * Math.PI) / 2;
 }
+
+/**
+ * Where each arm points, as an angle about +Y measured from +Z (south) toward
+ * +X (east). Indexed by seat: [north, east, south, west] = [pi, pi/2, 0, -pi/2].
+ *
+ * This is the NEGATIVE of `boardYawForSeat`, and the distinction matters:
+ * `boardYawForSeat` is the rotation that brings an arm TO the camera, this is
+ * the direction the arm points FROM the centre. They agree only for south.
+ *
+ * With `ARM_OFFSET` as the radius, the centre of an arm is at
+ * `(sin(ARM_ANGLES[seat]) * ARM_OFFSET, BOARD_TOP_Y, cos(ARM_ANGLES[seat]) * ARM_OFFSET)`
+ * — which is exactly what `storageSpace(seat, 1)` already gives you, so prefer
+ * that unless you specifically need the polar form (the animation runner's
+ * `setSceneLayout` does).
+ */
+export const ARM_ANGLES: readonly [number, number, number, number] = [
+  Math.PI, // north, -Z
+  Math.PI / 2, // east, +X
+  0, // south, +Z
+  -Math.PI / 2, // west, -X
+];
+
+/** Radius of an arm's centre space from the board centre. Alias of ARM_OFFSET. */
+export const ARM_RADIUS = ARM_OFFSET;
 
 export type SpaceKind = 'play' | 'storage';
 

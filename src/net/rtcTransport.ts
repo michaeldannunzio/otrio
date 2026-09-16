@@ -53,6 +53,7 @@ import {
   type Capabilities,
   type ClientMessage,
   type CreateRoomOptions,
+  type ErrorCode,
   type EventMsg,
   isPlausibleRoomCode,
   MAX_PLAYERS,
@@ -279,14 +280,25 @@ class PeerLink {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
+  // Written out rather than declared as constructor parameter properties:
+  // those are not erasable, so they make this module unloadable by Node's
+  // type-stripping loader — which is what test harnesses and any future
+  // server-side import rely on. `referee.ts` avoids them for the same reason.
+  readonly isOfferer: boolean;
+  private readonly connectTimeoutMs: number;
+  private cb: LinkCallbacks;
+
   constructor(
     peer: PlayerId,
-    readonly isOfferer: boolean,
+    isOfferer: boolean,
     config: RTCConfiguration,
-    private readonly connectTimeoutMs: number,
-    private cb: LinkCallbacks,
+    connectTimeoutMs: number,
+    cb: LinkCallbacks,
   ) {
     this.peer = peer;
+    this.isOfferer = isOfferer;
+    this.connectTimeoutMs = connectTimeoutMs;
+    this.cb = cb;
     this.pc = new RTCPeerConnection(config);
 
     // A *negotiated* channel: both sides create it with the same id, so there
@@ -807,6 +819,9 @@ export class RtcTransport implements Transport {
       // identity space, and there is no reason for one.
       peerId: this.identity.playerId,
       name: this.name,
+      // Signalling gets the same budget as every other request in the app.
+      // Shared constant rather than a second number: the two must not diverge.
+      connectTimeoutMs: TIMING.requestTimeoutMs,
     });
     this.sig = sig;
 
@@ -836,15 +851,28 @@ export class RtcTransport implements Transport {
       }),
       sig.on('signal', (from, data) => { void this.onSignal(from, data as Sig); }),
       sig.on('error', (e) => {
-        this.note(`signalling error: ${e.message}`);
-        if (e.fatal) this.fail(new TransportError(e.code === 'room-full' ? 'ROOM_FULL' : 'SIGNALING_FAILED', e.message, { retryable: true }));
+        // Always print the code: a bare message reads as `undefined` the moment
+        // the frame shape is not what we expected, and a diagnostic that prints
+        // nothing is worse than none — it costs the reader time before they
+        // conclude it is useless.
+        this.note(`signalling error [${e.code}] fatal=${e.fatal}: ${e.message}`);
+        if (e.fatal) this.fail(new TransportError(signalErrorCode(e.code), e.message, { retryable: e.retryable }));
       }),
     );
 
     try {
       await sig.connect();
     } catch (err) {
-      throw this.fail(new TransportError('SIGNALING_FAILED', `cannot reach the signalling server at ${this.signalingUrl}`, { retryable: true, cause: err }));
+      // Carry the reason through. Replacing it with "cannot reach the server"
+      // throws away the one sentence that says what is actually wrong — and
+      // "cannot reach" is often flatly untrue: the socket opened fine and the
+      // server rejected what we sent.
+      const detail = err instanceof Error ? err.message : String(err);
+      throw this.fail(new TransportError(
+        'SIGNALING_FAILED',
+        `signalling failed at ${this.signalingUrl}: ${detail}`,
+        { retryable: true, cause: err },
+      ));
     }
     // Give late `peer-join` notifications a beat to arrive before we decide the
     // room is empty. Cheap, and it removes a race that only shows up on a fast
@@ -1603,6 +1631,29 @@ export class RtcTransport implements Transport {
 /* ========================================================================== *
  * Helpers
  * ========================================================================== */
+
+/**
+ * Map a signalling error code onto the protocol's vocabulary.
+ *
+ * Accepts both spellings while the wire shape is being settled with the server
+ * (see `normalizeSignalError` in signaling.ts). Anything unrecognised becomes
+ * `SIGNALING_FAILED` rather than `INTERNAL`: to the player, a rendezvous that
+ * refuses us for a reason we do not recognise is still "could not reach the
+ * lobby", and that is the screen they should get.
+ */
+function signalErrorCode(code: string): ErrorCode {
+  switch (code) {
+    case 'room-full':
+    case 'ROOM_FULL': return 'ROOM_FULL';
+    case 'bad-room':
+    case 'CODE_INVALID': return 'CODE_INVALID';
+    case 'ROOM_NOT_FOUND': return 'ROOM_NOT_FOUND';
+    case 'PROTOCOL_MISMATCH': return 'PROTOCOL_MISMATCH';
+    case 'rate-limited':
+    case 'RATE_LIMITED': return 'RATE_LIMITED';
+    default: return 'SIGNALING_FAILED';
+  }
+}
 
 export function supportsWebRTC(): boolean {
   return (

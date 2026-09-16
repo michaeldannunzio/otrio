@@ -94,8 +94,13 @@ export interface PlayerPaint {
 }
 
 /**
- * Turn order as the artwork seats them, clockwise from the top.
- * The game module owns actual turn order; this is only the seating.
+ * The four colours by index, in the order the engine and the wire use them
+ * (`PLAYER_COLOR_NAMES` in `src/game/types.ts`) — clockwise from the north arm,
+ * as the artwork seats them.
+ *
+ * This is a **colour** ordering, not a seat ordering. They coincide in 3- and
+ * 4-player games and diverge in the official 2-player game, where one seat
+ * holds two colours. Index into this with a `PlayerColor`, never with a `Seat`.
  */
 export const PLAYER_ORDER: readonly PlayerColorId[] = ['purple', 'red', 'green', 'blue'] as const;
 
@@ -175,7 +180,7 @@ export function finishToArray(finish: PieceFinish): [number, number, number, num
   return [finish.roughness, finish.clearcoat, finish.clearcoatRoughness, finish.normalStrength];
 }
 
-/** Resolve a player index (0..3, seating order) to its paint. */
+/** Resolve a colour name or a `PlayerColor` index (0..3) to its paint. */
 export function paintForPlayer(player: PlayerColorId | number): PlayerPaint {
   if (typeof player === 'number') {
     const id = PLAYER_ORDER[((player % PLAYER_ORDER.length) + PLAYER_ORDER.length) % PLAYER_ORDER.length];

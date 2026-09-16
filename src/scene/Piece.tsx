@@ -181,7 +181,22 @@ export interface PieceFieldProps {
    * highlight alone identifies the owner.
    */
   accessibleFinish?: number;
-  /** Instances reserved per size. 12 is a full 4-player set. */
+  /**
+   * Instances reserved per size, per channel. A full 4-player set is 12 of each
+   * size — 4 colours x 3 — whether they are on the board or waiting on a
+   * storage arm, so 12 is the steady-state need and the default leaves headroom
+   * over it.
+   *
+   * THIS IS A HARD CEILING, NOT A SOFT ONE. drei clamps the draw count, but the
+   * per-instance attribute writes go through `BufferAttribute.set`, which
+   * throws a RangeError rather than dropping the overflow — every frame, from
+   * inside `useFrame`. So size it for the worst instant, not the average:
+   * anything transient counts, including a piece still drawn in its storage
+   * space while its copy animates onto the board, and a hover ghost rendered
+   * through the field rather than standalone.
+   *
+   * The headroom is nearly free: ~120 bytes per instance per size.
+   */
   limit?: number;
   castShadow?: boolean;
   receiveShadow?: boolean;
@@ -202,7 +217,7 @@ export function PieceField({
   detail = 'medium',
   quality = 'medium',
   accessibleFinish = 0,
-  limit = 12,
+  limit = 16,
   castShadow = true,
   receiveShadow = true,
   children,
@@ -329,7 +344,16 @@ export function PieceField({
  * -------------------------------------------------------------------------- */
 
 export interface PieceProps extends Omit<GroupProps, 'color' | 'ref' | 'args'> {
-  /** Colour id, or a seat index 0..3 in the order purple, red, green, blue. */
+  /**
+   * Who owns this piece: a colour name, or a **colour** index 0..3 in the order
+   * purple, red, green, blue — the same quantity as the engine's `PlayerColor`
+   * and the wire's, and NOT a seat.
+   *
+   * The two are not interchangeable. In the official 2-player game one person
+   * holds two colours (purple+green against red+blue), so a seat index passed
+   * here would paint pieces in someone else's colour and nothing would throw.
+   * Pieces on the board belong to a colour; turns and forfeits belong to a seat.
+   */
   player: PlayerColorId | number;
   size: PieceSize;
   /**
@@ -362,7 +386,7 @@ export const Piece = forwardRef<Object3D, PieceProps>(function Piece(props, ref)
   );
 });
 
-/** Seat index 0..3, whichever way the caller named the player. */
+/** Colour index 0..3, whichever way the caller named it. Never a seat. */
 function playerIndex(player: PlayerColorId | number): number {
   if (typeof player === 'number') {
     return ((player % PLAYER_ORDER.length) + PLAYER_ORDER.length) % PLAYER_ORDER.length;

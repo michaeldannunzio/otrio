@@ -7,8 +7,7 @@ import './styles/index.css';
 
 import { App } from './App';
 import { setTransport, setTransportBootError, usePrefs } from './store';
-import { loadOrCreateIdentity } from './net/transport';
-import type { Transport, TransportConfig, TransportKind } from './net/transport';
+import type { Transport } from './net/transport';
 
 /**
  * Entry point. Two jobs: build a transport, and mount the app. The theme is
@@ -29,52 +28,29 @@ import type { Transport, TransportConfig, TransportKind } from './net/transport'
  * -------------------------------------------------------------------------- */
 
 /**
- * Which backend to build.
- *
- * `?net=p2p` or `?net=hosted` overrides, which is what `TransportKind` is for:
- * the two implementations are meant to be A/B-comparable without a rebuild.
- */
-function chosenKind(): TransportKind {
-  const param = new URLSearchParams(window.location.search).get('net');
-  return param === 'p2p' ? 'p2p' : 'hosted';
-}
-
-/**
  * Build the transport.
  *
- * Both specifiers are **literal**, so Vite follows them: each backend becomes a
- * real chunk, three.js and the WebRTC stack are actually bundled, and the paths
- * are rewritten for production. They were briefly variable specifiers marked
- * `@vite-ignore` while the concrete backends did not exist -- which keeps the
- * build green while emitting no chunk at all, so the request 404s at runtime
- * and the catch below silently downgrades the whole app. Never again: a static
- * import that fails loudly is recoverable, one the bundler never saw is not.
+ * `src/net/index.ts` owns backend selection now, so this is a single call. Its
+ * `defaultTransportKind()` resolves `?net=` (with the `rtc`/`webrtc`/`ws`/
+ * `server` aliases), then a sticky `localStorage['otrio.net']`, then
+ * `VITE_OTRIO_TRANSPORT`, then `hosted`. The hand-rolled version that used to
+ * live here understood only the literal `p2p` in the query string, so the
+ * sticky preference and the build-time env var were unreachable — duplicated
+ * selection logic that had already drifted.
  *
- * ┌── INTEGRATION SEAM ────────────────────────────────────────────────────┐
- * │ `transport.ts` says the intended shape is a single                      │
- * │ `createTransport(kind, config)`. The net layer is putting that in       │
- * │ `src/net/index.ts`. Until it lands we call the two concrete factories   │
- * │ directly, which exist today and both return a `Transport`. When it      │
- * │ arrives this whole function collapses to:                               │
- * │                                                                         │
- * │     import { createTransport } from './net';                            │
- * │     …                                                                   │
- * │     return createTransport(kind, config);                               │
- * │                                                                         │
- * │ Keep it dynamic rather than a top-level import so the backend stays a   │
- * │ separate chunk and a failure to load it is catchable.                    │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * A literal specifier, dynamic rather than top-level: the backend stays its own
+ * chunk (the peer-to-peer one loads only when chosen), and a chunk that fails
+ * to load is catchable. Never a variable specifier with `@vite-ignore` — that
+ * emits no chunk at all, 404s at runtime, and turns a broken build into a
+ * silent fallback.
  */
 async function buildTransport(): Promise<Transport> {
-  const identity = loadOrCreateIdentity(usePrefs.getState().name || undefined);
-  const config: TransportConfig = { identity, debug: import.meta.env.DEV };
-
-  if (chosenKind() === 'p2p') {
-    const { createRtcTransport } = await import('./net/rtcTransport');
-    return createRtcTransport(config);
-  }
-  const { createWsTransport } = await import('./net/wsTransport');
-  return createWsTransport(config);
+  const { createTransport } = await import('./net');
+  return createTransport(undefined, {
+    // Used only when minting a fresh identity; a persisted one wins.
+    name: usePrefs.getState().name || undefined,
+    debug: import.meta.env.DEV,
+  });
 }
 
 void (async () => {

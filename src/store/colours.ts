@@ -96,6 +96,25 @@ export function ownerNameOfColour(room: RoomState | null, colour: PlayerColor): 
 }
 
 /**
+ * How to describe the owner of a ring on the board, in words.
+ *
+ * Always names the **colour**, not just the person. In the official 2-player
+ * game one person holds two colours, so "Ann" describes both of them
+ * identically -- and since a win is always within a single colour and the two
+ * never combine, a screen-reader user who cannot tell Ann's purple from Ann's
+ * green cannot follow the game at all. They would hear "Ann, Ann, Ann" across a
+ * line that is not a line.
+ *
+ * Colour first because that is the part that decides the game; the name is the
+ * gloss. Reads as "purple, Ann" or just "purple" when nobody holds it.
+ */
+export function slotOwnerText(room: RoomState | null, colour: PlayerColor): string {
+  const owner = seatOfColour(room, colour);
+  const name = colourLabel(colour).toLowerCase();
+  return owner ? `${name}, ${owner.name}` : name;
+}
+
+/**
  * The colours the seat to move may place this turn.
  *
  * Length 1 on every 3-/4-player turn and on every turn of the official

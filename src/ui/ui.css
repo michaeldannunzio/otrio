@@ -21,10 +21,30 @@
 
 /* ─────────────────────────────── shell ────────────────────────────────── */
 
+/*
+ * `height`, not just `min-height`.
+ *
+ * This is load-bearing and was a real bug: a percentage height cannot resolve
+ * through an `auto`-height ancestor, so with only `min-height` here the chain
+ *
+ *     .o-app (auto) → .o-app__body → .o-game (height:100%) → .app-shell (height:100%)
+ *
+ * collapsed `.app-shell` to its content height — 270px on an 839px viewport —
+ * and the bottom HUD, which the shell positions with `justify-content:
+ * space-between`, ended up at the top of the screen. The size picker is
+ * supposed to sit in the thumb zone; it was rendering above the board.
+ *
+ * `overflow: hidden` keeps the app itself from scrolling: this is a fixed
+ * shell, and the screens that need to scroll do it internally (`.o-screen`).
+ * Without it a short viewport gets two scrollbars, the outer one moving the
+ * fixed canvas out from under the HUD.
+ */
 .o-app {
   display: flex;
   flex-direction: column;
+  height: var(--vh-dynamic);
   min-height: var(--vh-dynamic);
+  overflow: hidden;
   background-color: var(--bg);
   color: var(--text-primary);
 }
@@ -58,6 +78,11 @@
 /* Scrollable, centred column for the non-game screens. */
 .o-screen {
   flex: 1 1 auto;
+  /* A flex item defaults to `min-height: auto`, which refuses to shrink below
+   * its content and so quietly defeats the `overflow-y: auto` below. Without
+   * this the home and lobby screens overflow the shell instead of scrolling
+   * inside it, and the overflow is unreachable now that `.o-app` clips. */
+  min-height: 0;
   width: 100%;
   max-width: 34rem;
   margin-inline: auto;

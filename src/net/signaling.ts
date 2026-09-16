@@ -106,8 +106,27 @@ export type SignalServerMsg =
   | { t: 'peer-join'; peer: PeerInfo }
   | { t: 'peer-leave'; peer: PeerId; reason?: string }
   | { t: 'signal'; from: PeerId; data: unknown }
-  | { t: 'error'; code: SignalErrorCode; message: string }
+  | SignalErrorMsg
   | { t: 'pong'; ts: number };
+
+/**
+ * Two accepted error shapes.
+ *
+ * The nested one is `ErrorMsg` from `protocol.ts` — the same frame the game
+ * socket uses — and is what the server sends. It is the one to write new code
+ * against: it carries `fatal` explicitly, so the server can say "stop retrying"
+ * instead of the client guessing from a hardcoded list of codes.
+ *
+ * The flat one is this module's original spelling, kept only until the server
+ * side is confirmed. Being liberal here is deliberate and is confined to this
+ * one frame type: the error frame is the path that reports every *other*
+ * failure, so failing to parse it converts a clear server message into silence.
+ * That exact mismatch is what made a signalling failure present as an
+ * indefinite "Opening the room…" spinner with `undefined` in the log.
+ */
+export type SignalErrorMsg =
+  | { t: 'error'; error: { code?: string; message?: string; retryable?: boolean }; fatal?: boolean }
+  | { t: 'error'; code?: SignalErrorCode | string; message?: string };
 
 export type SignalErrorCode =
   | 'room-full'
@@ -115,6 +134,53 @@ export type SignalErrorCode =
   | 'duplicate-peer'
   | 'rate-limited'
   | 'server-error';
+
+/** An error frame, reduced to the four things a caller actually acts on. */
+export interface SignalError {
+  code: string;
+  message: string;
+  /** Retrying will never help; stop and tell the player. */
+  fatal: boolean;
+  retryable: boolean;
+}
+
+/**
+ * Codes that mean "this will never work": a full room does not empty, and a
+ * malformed code does not become well-formed. Spelled in both vocabularies
+ * because a server may answer in either until the shape is settled.
+ *
+ * Only consulted when the frame does not state `fatal` itself. An explicit
+ * `fatal` from the server always wins.
+ */
+const FATAL_SIGNAL_CODES: ReadonlySet<string> = new Set([
+  'room-full', 'bad-room', 'duplicate-peer',
+  'ROOM_FULL', 'CODE_INVALID', 'ROOM_NOT_FOUND', 'PROTOCOL_MISMATCH', 'SEAT_TAKEN',
+]);
+
+/**
+ * Reduce any error frame to a `SignalError`.
+ *
+ * Never returns a `message` of `undefined`: when the frame matches neither
+ * shape it reports the raw JSON instead, because a diagnostic that prints
+ * nothing costs the reader more time than no diagnostic at all.
+ */
+export function normalizeSignalError(frame: unknown): SignalError {
+  const f = (frame ?? {}) as Record<string, unknown>;
+  const nested = f.error as Record<string, unknown> | undefined;
+  const source = nested && typeof nested === 'object' ? nested : f;
+
+  const code = typeof source.code === 'string' && source.code ? source.code : 'server-error';
+  const rawMessage = typeof source.message === 'string' ? source.message : '';
+  const retryable = typeof source.retryable === 'boolean' ? source.retryable : !FATAL_SIGNAL_CODES.has(code);
+  const fatal = typeof f.fatal === 'boolean' ? f.fatal : FATAL_SIGNAL_CODES.has(code);
+
+  const message = rawMessage || `unparseable error frame: ${safeJson(frame)}`;
+  return { code, message, fatal, retryable };
+}
+
+function safeJson(v: unknown): string {
+  try { return JSON.stringify(v) ?? String(v); } catch { return String(v); }
+}
 
 export type SignalingState =
   | 'idle'
@@ -135,7 +201,7 @@ export type SignalingEvents = {
   peerLeave(peer: PeerId, reason?: string): void;
   signal(from: PeerId, data: unknown): void;
   state(state: SignalingState): void;
-  error(err: { code: SignalErrorCode | 'transport'; message: string; fatal: boolean }): void;
+  error(err: SignalError): void;
 }
 
 export interface Signaling {
@@ -165,6 +231,15 @@ export interface SignalingOptions {
   pingIntervalMs?: number;
   /** Cap on reconnect backoff. Defaults to 15s. */
   maxBackoffMs?: number;
+  /**
+   * Hard bound on `connect()`. Pass `TIMING.requestTimeoutMs` so signalling
+   * obeys the same budget as every other request in the app.
+   *
+   * Without this the client will retry a broken signalling server forever while
+   * the caller's promise stays pending, which the player sees as a spinner that
+   * never resolves and never explains itself. Defaults to 10s.
+   */
+  connectTimeoutMs?: number;
   /** Injectable for tests. */
   now?: () => number;
 }
@@ -217,11 +292,15 @@ export class WebSocketSignaling implements Signaling {
   private everWelcomed = false;
   private closedByUs = false;
   private readyWaiters: Array<{ resolve(): void; reject(e: Error): void }> = [];
+  private connectDeadline: ReturnType<typeof setTimeout> | null = null;
+  /** Kept so that giving up can report what the server said, not just "timed out". */
+  private lastServerError: SignalError | null = null;
 
   private readonly url: string;
   private readonly name?: string;
   private readonly pingIntervalMs: number;
   private readonly maxBackoffMs: number;
+  private readonly connectTimeoutMs: number;
   private readonly now: () => number;
 
   constructor(opts: SignalingOptions) {
@@ -231,6 +310,7 @@ export class WebSocketSignaling implements Signaling {
     this.name = opts.name;
     this.pingIntervalMs = opts.pingIntervalMs ?? 25_000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 15_000;
+    this.connectTimeoutMs = opts.connectTimeoutMs ?? 10_000;
     this.now = opts.now ?? (() => Date.now());
   }
 
@@ -247,8 +327,48 @@ export class WebSocketSignaling implements Signaling {
     const p = new Promise<void>((resolve, reject) => {
       this.readyWaiters.push({ resolve, reject });
     });
+    // Hard bound on the handshake. Retrying is right; retrying forever behind a
+    // promise nobody ever settles is not — that is a spinner the player cannot
+    // escape and cannot be told the reason for.
+    if (!this.connectDeadline) {
+      this.connectDeadline = setTimeout(
+        () => this.giveUp(`no signalling handshake within ${this.connectTimeoutMs}ms`),
+        this.connectTimeoutMs,
+      );
+    }
     if (this._state === 'idle' || this._state === 'closed') this.open();
     return p;
+  }
+
+  /**
+   * Stop trying and tell everyone why.
+   *
+   * The `why` is the local reason (timed out, fatal error); `lastServerError`
+   * is what the far end actually said. Both go into the message, because
+   * "timed out" alone — while the server was explaining the real problem on
+   * every attempt — is the diagnostic that wasted the most time on this project.
+   */
+  private giveUp(why: string): void {
+    if (this.closedByUs && this._state === 'closed') return;
+    const detail = this.lastServerError
+      ? `${why} — server said [${this.lastServerError.code}] ${this.lastServerError.message}`
+      : why;
+    this.closedByUs = true;
+    this.clearConnectDeadline();
+    this.teardownSocket();
+    this.clearTimers();
+    this.setState('closed');
+    this.emitter.emit('error', {
+      code: this.lastServerError?.code ?? 'transport',
+      message: detail,
+      fatal: true,
+      retryable: this.lastServerError?.retryable ?? true,
+    });
+    this.rejectWaiters(new Error(detail));
+  }
+
+  private clearConnectDeadline(): void {
+    if (this.connectDeadline) { clearTimeout(this.connectDeadline); this.connectDeadline = null; }
   }
 
   send(to: PeerId, data: unknown): void {
@@ -281,6 +401,7 @@ export class WebSocketSignaling implements Signaling {
         code: 'transport',
         message: `Could not open ${this.url}: ${String(err)}`,
         fatal: false,
+        retryable: true,
       });
       this.scheduleReconnect();
       return;
@@ -323,6 +444,7 @@ export class WebSocketSignaling implements Signaling {
         code: 'transport',
         message: `Signalling socket closed (${ev.code}${ev.reason ? ': ' + ev.reason : ''})`,
         fatal: false,
+        retryable: true,
       });
       this.scheduleReconnect();
     };
@@ -333,6 +455,11 @@ export class WebSocketSignaling implements Signaling {
       case 'welcome': {
         const resumed = this.everWelcomed;
         this.everWelcomed = true;
+        // Handshake completed: the connect budget no longer applies, and any
+        // error from a previous attempt is now history rather than a reason.
+        this.clearConnectDeadline();
+        this.lastServerError = null;
+        this.attempt = 0;
         this._peers.clear();
         for (const p of msg.peers) this._peers.set(p.id, p);
         this._peers.set(msg.you, { id: msg.you, name: this.name, order: msg.order });
@@ -363,14 +490,18 @@ export class WebSocketSignaling implements Signaling {
         this.lastPongAt = this.now();
         break;
       case 'error': {
-        const fatal = msg.code === 'room-full' || msg.code === 'bad-room';
-        this.emitter.emit('error', { code: msg.code, message: msg.message, fatal });
-        if (fatal) {
-          this.closedByUs = true;
-          this.rejectWaiters(new Error(msg.message));
-          this.setState('closed');
-          this.teardownSocket();
-          this.clearTimers();
+        const err = normalizeSignalError(msg);
+        this.lastServerError = err;
+        this.emitter.emit('error', err);
+        if (err.fatal) {
+          this.giveUp(`signalling rejected us: ${err.code}`);
+        } else if (!this.everWelcomed) {
+          // A non-fatal error answering our `join` means this socket is not
+          // going to produce a welcome. Drop it so the normal backoff path
+          // retries on a fresh one; the connect deadline is what eventually
+          // stops us. Leaving it open was the bug: the socket stayed up, no
+          // reconnect was scheduled, and nothing ever settled.
+          try { this.ws?.close(4002, 'join rejected'); } catch { /* already gone */ }
         }
         break;
       }

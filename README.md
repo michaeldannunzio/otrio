@@ -343,10 +343,11 @@ Being straight about what has actually been observed working, because this was
 built by several agents in parallel and "it compiles" is not the same as
 "it runs".
 
-Each claim below says *when* it was true. That matters more than usual here:
-the repo has **no commits yet** (`git rev-list --count HEAD` is 0), so there is
-no revision to pin these to, and the tree moved under this section while it was
-being written.
+Each claim below says *when* it was true, and where possible which commit it
+was true at. That matters more than usual here: this tree moved repeatedly
+while this section was being written, and several claims in it were already
+stale within the hour. A verification note without a timestamp is worth very
+little.
 
 > ### Current state: green
 >
@@ -472,10 +473,22 @@ being written.
 - Rendering performance on mobile GPUs.
 - Whether the textures actually look right on the board. The files are present
   and committed; nobody has seen them applied to the 3D scene.
-- **The CI workflow has never run.** There are no commits in this repository,
-  so nothing has ever been pushed and GitHub Actions has never executed
-  `.github/workflows/ci.yml`. Its steps are the same commands verified locally,
-  but the workflow file itself is unexercised.
+- **The end-to-end tests have never exercised the production build.** The
+  Playwright suite drives `npm run dev`, so everything it proves is about the
+  dev server's unbundled ES modules. The chunk splitting above — three.js on
+  its own, React separate, the scene and both transports lazy — is verified by
+  reading the build output, not by a browser having loaded those chunks in that
+  order and rendered from them. Chunk-ordering bugs live exactly in that gap:
+  the circular-chunk error described earlier would not have shown up in dev
+  either.
+
+  Closing it is two lines in `playwright.config.ts`: change the second
+  `webServer` command from `npm run dev` to `npm run preview`, and point
+  `BASE_URL` at `:4173`. Worth doing once before any deployment is trusted.
+
+- **The CI workflow has never run.** GitHub Actions has never executed
+  `.github/workflows/ci.yml` — the repository has no remote. Its steps are the
+  same commands verified locally, but the workflow file itself is unexercised.
 - **The container has never been built.** Docker is not installed on the
   machine this was assembled on, so `Dockerfile` has not been run even once.
 

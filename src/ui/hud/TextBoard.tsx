@@ -6,7 +6,7 @@ import type { CellIndex, CellState, PieceSize, PlayerColor } from '../../net/pro
 import {
   dueColour,
   interaction,
-  ownerNameOfColour,
+  slotOwnerText,
   placePiece,
   reserveOfColour,
   ui,
@@ -170,7 +170,7 @@ export function TextBoard() {
                 cell={cell}
                 colIndex={colIndex + 1}
                 state={game.board[cell]}
-                nameOfColour={(c) => ownerNameOfColour(room, c)}
+                describeOwner={(c) => slotOwnerText(room, c)}
                 armed={selectedSize}
                 canPlace={isMyTurn && armedLeft > 0 && game.board[cell]?.[selectedSize] === null}
                 isFocusTarget={focusCell === cell}
@@ -194,7 +194,7 @@ function CellButton({
   cell,
   colIndex,
   state,
-  nameOfColour,
+  describeOwner,
   armed,
   canPlace,
   isFocusTarget,
@@ -204,7 +204,8 @@ function CellButton({
   cell: CellIndex;
   colIndex: number;
   state: CellState | undefined;
-  nameOfColour: (colour: PlayerColor) => string;
+  /** Describes a ring's owner by COLOUR, not just by person. */
+  describeOwner: (colour: PlayerColor) => string;
   armed: PieceSize;
   canPlace: boolean;
   isFocusTarget: boolean;
@@ -218,7 +219,7 @@ function CellButton({
   // which is purple and is falsy.
   const occupancy = PIECE_SIZES.map((size) => {
     const owner = state?.[size];
-    return `${size} ${owner === null || owner === undefined ? 'free' : nameOfColour(owner)}`;
+    return `${size} ${owner === null || owner === undefined ? 'free' : describeOwner(owner)}`;
   }).join(', ');
   const action = canPlace ? `Place your ${armed} ring here.` : 'Cannot place here.';
 

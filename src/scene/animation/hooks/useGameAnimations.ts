@@ -1,6 +1,14 @@
 /**
  * Drive every animation from observed game state.
  *
+ * ## What this takes
+ *
+ * An `AnimatableGame` (see `core/view.ts`) — a narrow structural view, not the
+ * engine's `GameState`. Clients never have a `GameState`: they render the
+ * referee's projection and deliberately do not run the engine. Both the engine
+ * state and the wire `GameSnapshot` map onto this view cheaply, and nothing has
+ * to be fabricated to satisfy it.
+ *
  * ## Why state diffing, and not events
  *
  * `net/protocol.ts` is explicit that events are droppable: *"a client that
@@ -13,13 +21,14 @@
  * So this hook animates the **difference between two board states** and nothing
  * else. Consequences:
  *
- *  - A duplicated state produces an empty diff, so nothing animates twice.
+ *  - A duplicated snapshot produces an empty diff, so nothing animates twice.
  *  - A dropped event changes nothing, because no event was needed.
  *  - A reconnect delivering five missed moves produces a five-move diff, which
  *    the pacing logic below turns into a readable sequence instead of five
  *    pieces landing on the same frame.
- *  - A rollback (server disagreed with an optimistic local move) shows up as a
- *    slot going from occupied back to empty, and snaps rather than animating.
+ *  - A rollback (the referee disagreed with an optimistic local move) shows up
+ *    as a slot going from occupied back to empty, and snaps rather than
+ *    animating.
  *
  * ## Local versus remote
  *
@@ -35,24 +44,19 @@
  *
  * ## Never blocking
  *
- * Nothing here awaits anything. The rules engine has already committed every
- * move by the time this hook sees it; pieces render at their final positions
- * and the animation is a decaying offset on top. A player can place their next
- * piece while three others are still settling.
+ * Nothing here awaits anything. The move is already committed by the time this
+ * hook sees it; pieces render at their final positions and the animation is a
+ * decaying offset on top. A player can place their next piece while three
+ * others are still settling.
  */
 
 import { useEffect, useRef } from 'react';
-import {
-  SIZES,
-  type GameState,
-  type Move,
-  type PlayerId,
-  type SpaceIndex,
-} from '../../../game/types';
+import { SIZES, type Size, type SpaceIndex } from '../../../game/types';
 import { BOARD_SLOT_COUNT, slotKey } from '../core/ids';
 import { MOTION } from '../core/prefs';
 import { runner } from '../core/runner';
 import { QUEUE } from '../core/timing';
+import type { AnimatableBoard, AnimatableGame } from '../core/view';
 import {
   playDraw,
   playGameStart,
@@ -64,28 +68,42 @@ import {
   stopAllAnimations,
 } from '../schedule';
 
+/** A placement, as the origin lookup sees it. Colours are plain indices. */
+export interface AnimatableMoveRef {
+  readonly player: number;
+  readonly space: number;
+  readonly size: Size;
+}
+
 export interface GameAnimationOptions {
-  /** The authoritative game state. Every animation derives from changes to it. */
-  state: GameState;
-
   /**
-   * Colours this device controls. Used only to decide whether a move gets the
-   * local treatment (gesture continuity + haptic) or the remote one (fly in
-   * from the mover's arm). Getting it wrong is cosmetic, never incorrect.
+   * The game, as a structural view. Map a wire `GameSnapshot` onto it — see
+   * the worked example in `core/view.ts`.
    */
-  localPlayers?: readonly PlayerId[];
+  state: AnimatableGame;
 
   /**
-   * Where a local move's piece physically was, as world coordinates. Return
+   * COLOURS this device controls — not seats.
+   *
+   * In the official 2-player game one participant owns two colours on opposite
+   * arms, so this has two entries there and one otherwise. Used only to decide
+   * whether a move gets the local treatment (gesture continuity + haptic) or
+   * the remote one (fly in from the mover's arm). Getting it wrong is
+   * cosmetic, never incorrect.
+   */
+  localPlayers?: readonly number[];
+
+  /**
+   * Where a local move's piece physically was, in world coordinates. Return
    * `undefined` and the move is animated as if it were remote, which is a
    * perfectly good fallback.
    */
-  getMoveOrigin?: (move: Move) => { x: number; y: number; z: number } | undefined;
+  getMoveOrigin?: (move: AnimatableMoveRef) => { x: number; y: number; z: number } | undefined;
 
   /**
    * Fires when a piece touches the board. Hook audio here — RULES.md §9 notes
    * the solid peg and the hollow rings sound different, and the size is
-   * recoverable from the key.
+   * recoverable from the key via `slotSizeRank`.
    */
   onBeat?: (key: number, beat: number) => void;
 
@@ -93,14 +111,13 @@ export interface GameAnimationOptions {
   enabled?: boolean;
 }
 
-/** Occupancy snapshot: 0 = empty, otherwise `PlayerId + 1`. */
-function readOccupancy(state: GameState, out: Uint8Array): void {
+/** Occupancy snapshot: 0 = empty, otherwise `colour + 1`. */
+function readOccupancy(board: AnimatableBoard, out: Uint8Array): void {
   for (let space = 0; space < 9; space++) {
-    const cell = state.board[space];
+    const cell = board[space];
     for (let s = 0; s < 3; s++) {
-      const size = SIZES[s];
-      const who = cell[size];
-      out[space * 3 + s] = who === null ? 0 : who + 1;
+      const who = cell[SIZES[s]];
+      out[space * 3 + s] = who === null || who === undefined ? 0 : who + 1;
     }
   }
 }
@@ -113,7 +130,7 @@ export function useGameAnimations({
   enabled = true,
 }: GameAnimationOptions): void {
   const prevOccupancy = useRef<Uint8Array>(new Uint8Array(BOARD_SLOT_COUNT));
-  const prevState = useRef<GameState | null>(null);
+  const prevState = useRef<AnimatableGame | null>(null);
   const nextOccupancy = useRef<Uint8Array>(new Uint8Array(BOARD_SLOT_COUNT));
   /** Runner time at which the last placement was scheduled to begin. */
   const lastPlacementAt = useRef(-Infinity);
@@ -137,21 +154,24 @@ export function useGameAnimations({
 
     const prev = prevState.current;
     const next = nextOccupancy.current;
-    readOccupancy(state, next);
+    readOccupancy(state.board, next);
 
     // --- new game / rematch -------------------------------------------------
+    // A move count that went backwards means the board was reset. `gameKey`
+    // catches the case a rematch does not: a fresh game in a room that never
+    // reloaded, where the count legitimately starts at zero again.
     const isNewGame =
       prev === null ||
-      prev.config !== state.config ||
-      state.moveNumber < prev.moveNumber;
+      state.gameKey !== prev.gameKey ||
+      state.moveCount < prev.moveCount;
 
     if (isNewGame) {
       stopAllAnimations();
-      playGameStart(state.config.colorsInPlay);
+      playGameStart(state.colorsInPlay);
       playTurnChange({
         from: null,
-        to: state.currentPlayer,
-        colorsInPlay: state.config.colorsInPlay,
+        to: state.currentColor,
+        colorsInPlay: state.colorsInPlay,
       });
       prevOccupancy.current.set(next);
       prevState.current = state;
@@ -171,7 +191,7 @@ export function useGameAnimations({
       if (now === 0) {
         // Occupied -> empty. A rollback or a reconciliation. Never animate a
         // piece leaving the board mid-game; just make it correct.
-        snapPlacement((((key / 3) | 0) as SpaceIndex), SIZES[key % 3]);
+        snapPlacement(((key / 3) | 0) as SpaceIndex, SIZES[key % 3]);
       } else {
         list.push(key);
       }
@@ -189,44 +209,50 @@ export function useGameAnimations({
     }
 
     // --- turn change --------------------------------------------------------
+    // The colour usually changes every turn, but not always: if every other
+    // seat is skipped the same colour comes round again, and that is still a
+    // new turn. So an advancing move count counts as a turn change too.
     const turnChanged =
-      prev.currentPlayer !== state.currentPlayer || prev.turnIndex !== state.turnIndex;
+      prev.currentColor !== state.currentColor ||
+      prev.currentSeat !== state.currentSeat ||
+      prev.moveCount !== state.moveCount;
 
     if (turnChanged && state.status === 'playing') {
-      // `skipped` is a list of turn slots; flatten to the colours they hold so
-      // each skipped arm can flash. Allocated once per turn, never per frame.
-      let skippedColors: PlayerId[] | undefined;
-      if (state.skipped.length > 0) {
+      // Flatten skipped turn slots to the colours they hold, so each skipped
+      // arm can flash. Allocated once per turn, never per frame.
+      let skippedColors: number[] | undefined;
+      const skipped = state.skipped;
+      if (skipped && skipped.length > 0) {
         skippedColors = [];
-        for (const slot of state.skipped) {
+        for (const slot of skipped) {
           for (const c of slot.colors) skippedColors.push(c);
         }
       }
 
       playTurnChange({
-        from: prev.currentPlayer,
-        to: state.currentPlayer,
+        from: prev.currentColor,
+        to: state.currentColor,
         // The official 2-player game gives one participant two colours on
         // opposite arms. Passing to your OWN other colour is a different event
         // from passing to an opponent, and it is drawn differently.
         sameSeat: prev.currentSeat === state.currentSeat,
         skipped: skippedColors,
-        colorsInPlay: state.config.colorsInPlay,
+        colorsInPlay: state.colorsInPlay,
       });
     }
 
     // --- game end -----------------------------------------------------------
     if (prev.status !== state.status) {
-      if (state.status === 'won' && state.result) {
-        // Delay the celebration until the winning piece has actually landed,
-        // otherwise the highlight fires while the piece is still in the air.
-        const settle = MOTION.reduced ? 120 : 380;
-        const result = state.result;
+      // Wait for the winning piece to land before celebrating it, or the
+      // highlight fires while the piece is still in the air.
+      const settle = MOTION.reduced ? 120 : 380;
+      if (state.status === 'won' && state.win && state.win.length > 0) {
+        const lines = state.win;
         const board = state.board;
-        window.setTimeout(() => playWin(result, board), settle);
+        window.setTimeout(() => playWin(lines, board), settle);
       } else if (state.status === 'draw') {
         const board = state.board;
-        window.setTimeout(() => playDraw(board), MOTION.reduced ? 120 : 380);
+        window.setTimeout(() => playDraw(board), settle);
       }
     }
 
@@ -252,8 +278,8 @@ export function useGameAnimations({
  */
 function scheduleMoves(
   slotKeys: readonly number[],
-  state: GameState,
-  localPlayers: readonly PlayerId[] | undefined,
+  state: AnimatableGame,
+  localPlayers: readonly number[] | undefined,
   getOrigin: GameAnimationOptions['getMoveOrigin'],
   onBeat: GameAnimationOptions['onBeat'],
   lastPlacementAt: { current: number },
@@ -263,7 +289,7 @@ function scheduleMoves(
   if (count >= QUEUE.snapAt) {
     for (let i = 0; i < count; i++) {
       const key = slotKeys[i];
-      snapPlacement((((key / 3) | 0) as SpaceIndex), SIZES[key % 3]);
+      snapPlacement(((key / 3) | 0) as SpaceIndex, SIZES[key % 3]);
     }
     playSyncPulse();
     lastPlacementAt.current = runner.time;
@@ -274,9 +300,10 @@ function scheduleMoves(
   const stagger = fast ? QUEUE.fastStagger : QUEUE.minStagger;
   const speed = fast ? 1 / QUEUE.fastDurationScale : 1;
 
-  // Order the burst chronologically where we can. The history tail is the true
-  // order; slot-index order would make a reconnect replay the board top-left to
-  // bottom-right, which is not how the game was played.
+  // Order the burst chronologically when history is available. Slot-index
+  // order would make a reconnect replay the board top-left to bottom-right,
+  // which is not how the game was played. The wire has no history, so this
+  // usually falls through to the given order — a refinement, not a requirement.
   const ordered = orderByHistory(slotKeys, state, count);
 
   // Respect a global minimum gap, even across separate state updates. Two moves
@@ -286,9 +313,9 @@ function scheduleMoves(
 
   for (let i = 0; i < ordered.length; i++) {
     const key = ordered[i];
-    const space = (((key / 3) | 0) as SpaceIndex);
+    const space = ((key / 3) | 0) as SpaceIndex;
     const size = SIZES[key % 3];
-    const player = (state.board[space][size] ?? 0) as PlayerId;
+    const player = state.board[space][size] ?? 0;
 
     const isLocal = localPlayers ? localPlayers.indexOf(player) !== -1 : false;
     let origin: { x: number; y: number; z: number } | undefined;
@@ -315,21 +342,21 @@ const orderBuf: number[] = [];
 
 /**
  * Put a burst of newly occupied slots into the order they were actually played,
- * using the tail of `history`. Falls back to the given order if history and the
- * diff disagree, which can happen after a hand-built or repaired state.
+ * using the tail of `history` when the caller has one. Falls back to the given
+ * order whenever history is absent or disagrees with the diff.
  */
 function orderByHistory(
   slotKeys: readonly number[],
-  state: GameState,
+  state: AnimatableGame,
   count: number,
 ): readonly number[] {
   const history = state.history;
-  if (history.length < count) return slotKeys;
+  if (!history || history.length < count) return slotKeys;
 
   orderBuf.length = 0;
   for (let i = history.length - count; i < history.length; i++) {
     const move = history[i];
-    const key = slotKey(move.space, move.size);
+    const key = slotKey(move.space as SpaceIndex, move.size);
     if (slotKeys.indexOf(key) === -1) {
       // History does not explain this diff. Trust the diff.
       return slotKeys;

@@ -16,6 +16,17 @@ coverage/
 .nyc_output/
 *.lcov
 
+# Playwright transient output. These are regenerated on every run and a single
+# failing multi-client test produces a 34MB trace.zip — one got committed, and
+# it is why .git is 47MB for a repo whose working tree is a few hundred KB of
+# source. Deliberately NOT ignoring e2e/screenshots/, which is committed on
+# purpose: those are the first frames the board ever rendered.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+playwright/.cache/
+
 # local dev TLS certificates (see README "Running dev over HTTPS")
 # These are per-machine, self-signed, and must never be committed.
 certs/

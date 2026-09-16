@@ -20,12 +20,11 @@
 import {
   SIZES,
   SIZE_ORDER,
-  type BoardState,
   type PlayerId,
   type Size,
   type SpaceIndex,
-  type WinResult,
 } from '../../game/types';
+import type { AnimatableBoard, AnimatableWin } from './core/view';
 import { CH, resetChannels } from './core/channels';
 import { hash01 } from './core/easing';
 import {
@@ -132,7 +131,7 @@ export interface PlacementOptions {
 export function playPlacement(
   space: SpaceIndex,
   size: Size,
-  player: PlayerId,
+  player: number,
   opts: PlacementOptions = {},
 ): boolean {
   const key = slotKey(space, size);
@@ -408,9 +407,9 @@ export function playRejectSlot(space: SpaceIndex, size: Size, opts?: RejectOptio
 
 export interface TurnChangeOptions {
   /** Colour that just finished, or null at the opening turn. */
-  from: PlayerId | null;
+  from: number | null;
   /** Colour due to move now. */
-  to: PlayerId;
+  to: number;
   /**
    * True when `from` and `to` belong to the SAME participant — the official
    * 2-player alternation, where one player owns two colours on opposite arms.
@@ -424,9 +423,9 @@ export interface TurnChangeOptions {
    */
   sameSeat?: boolean;
   /** Colours passed over because they had no legal placement. */
-  skipped?: readonly PlayerId[];
+  skipped?: readonly number[];
   /** Every colour on the board, so inactive arms can be dimmed. */
-  colorsInPlay?: readonly PlayerId[];
+  colorsInPlay?: readonly number[];
 }
 
 export function playTurnChange({
@@ -460,8 +459,8 @@ export function playTurnChange({
   // Arms: the active colour rises and brightens, the rest settle and dim.
   const colors = colorsInPlay ?? [0, 1, 2, 3];
   for (let i = 0; i < colors.length; i++) {
-    const player = colors[i];
-    const key = trayKey(player);
+    const player = colors[i] as PlayerId;
+    const key = trayKey(player as PlayerId);
     const binding = getBinding(key);
     const active = player === to;
 
@@ -479,7 +478,7 @@ export function playTurnChange({
     for (let i = 0; i < skipped.length; i++) {
       const tr = runner.spawn(
         TrackKind.Skipped,
-        trayKey(skipped[i]),
+        trayKey(skipped[i] as PlayerId),
         dur(0.4),
         i * 0.08,
       );
@@ -495,11 +494,12 @@ export function playTurnChange({
 /**
  * Celebrate a win.
  *
- * `WinResult.lines[].pieces` is already ordered for animation by the rules
- * engine — increasing space index for a same-size line, small-medium-large for
- * a sequence or a nested win — so the stagger can be driven straight off the
- * array index and the animation ends up drawing the win in the direction it
- * reads. That ordering is the single most useful thing the engine gives us.
+ * Each line's `cells`/`sizes` arrive already ordered for animation — increasing
+ * space index for a same-size line, small-medium-large for a sequence or a
+ * nested win. Both the engine and the wire guarantee that ordering, so the
+ * stagger is driven straight off the array index and the animation ends up
+ * drawing the win in the direction it reads. That ordering is the single most
+ * useful thing either layer hands us.
  *
  * Two shapes, deliberately very different:
  *
@@ -510,14 +510,13 @@ export function playTurnChange({
  *    out of their bullseye, counter-rotate, and slam back together. No travel
  *    at all, because a nested win is not a line and should not look like one.
  */
-export function playWin(result: WinResult, board: BoardState): void {
+export function playWin(lines: readonly AnimatableWin[], board: AnimatableBoard): void {
   winFlags.fill(0);
 
-  for (let l = 0; l < result.lines.length; l++) {
-    const line = result.lines[l];
+  for (let l = 0; l < lines.length; l++) {
+    const line = lines[l];
     for (let i = 0; i < 3; i++) {
-      const piece = line.pieces[i];
-      winFlags[slotKey(piece.space, piece.size)] = 1;
+      winFlags[slotKey(line.cells[i] as SpaceIndex, line.sizes[i])] = 1;
     }
   }
 
@@ -546,15 +545,14 @@ export function playWin(result: WinResult, board: BoardState): void {
   // only play one of them. The nested animation is the more distinctive of the
   // two and the one that shows off the bullseye, so it gets first claim.
   for (let pass = 0; pass < 2; pass++) {
-    for (let l = 0; l < result.lines.length; l++) {
-      const line = result.lines[l];
-      const nested = line.condition === 'nested';
+    for (let l = 0; l < lines.length; l++) {
+      const line = lines[l];
+      const nested = line.kind === 'nested';
       if ((pass === 0) !== nested) continue;
-      const isSequence = line.condition === 'sequence';
+      const isSequence = line.kind === 'sequence';
 
       for (let i = 0; i < 3; i++) {
-        const piece = line.pieces[i];
-        const key = slotKey(piece.space, piece.size);
+        const key = slotKey(line.cells[i] as SpaceIndex, line.sizes[i]);
 
         // A piece can belong to two winning triples at once. The first claim
         // wins; a second track would double the lift and look broken.
@@ -648,7 +646,7 @@ export function playWin(result: WinResult, board: BoardState): void {
  * A 3-player game is an exact fit — 27 pieces into 27 slots — so a drawn
  * 3-player board is completely full and this blooms across all of it.
  */
-export function playDraw(board: BoardState): void {
+export function playDraw(board: AnimatableBoard): void {
   for (let space = 0 as SpaceIndex; space < 9; space = (space + 1) as SpaceIndex) {
     const cell = board[space];
     for (let s = 0; s < 3; s++) {
@@ -683,7 +681,7 @@ export function playDraw(board: BoardState): void {
  * weight and they seat into recesses — is established in the first half second,
  * before the player has made a single move.
  */
-export function playGameStart(colorsInPlay: readonly PlayerId[]): void {
+export function playGameStart(colorsInPlay: readonly number[]): void {
   runner.clear();
   clearAllStatic();
   resetChannels();
@@ -691,7 +689,7 @@ export function playGameStart(colorsInPlay: readonly PlayerId[]): void {
   const reduced = MOTION.reduced;
 
   for (let p = 0; p < colorsInPlay.length; p++) {
-    const player = colorsInPlay[p];
+    const player = colorsInPlay[p] as PlayerId;
     for (let s = 0; s < 3; s++) {
       for (let ordinal = 0; ordinal < 3; ordinal++) {
         const key = reserveKey(player, SIZES[s], ordinal);
@@ -770,10 +768,10 @@ export function playReset(onComplete?: () => void): number {
  * drains to grey and their arm drops. Crucially nothing on the playing area
  * moves, because a departure must never be mistakable for a move.
  */
-export function playPlayerLeave(player: PlayerId, board: BoardState): void {
+export function playPlayerLeave(player: number, board: AnimatableBoard): void {
   const tray = runner.spawn(
     TrackKind.PresenceLeave,
-    trayKey(player),
+    trayKey(player as PlayerId),
     dur(PRESENCE.leaveDur),
   );
   tray.a = PRESENCE.leaveDesaturate;
@@ -801,7 +799,7 @@ export function playPlayerLeave(player: PlayerId, board: BoardState): void {
     for (let ordinal = 0; ordinal < 3; ordinal++) {
       const tr = runner.spawn(
         TrackKind.PresenceLeave,
-        reserveKey(player, SIZES[s], ordinal),
+        reserveKey(player as PlayerId, SIZES[s], ordinal),
         dur(PRESENCE.leaveDur),
         (s * 3 + ordinal) * 0.02,
       );
@@ -813,8 +811,8 @@ export function playPlayerLeave(player: PlayerId, board: BoardState): void {
 }
 
 /** A player joined, or reconnected: colour washes back in and the arm rises. */
-export function playPlayerJoin(player: PlayerId, board?: BoardState): void {
-  const tray = runner.spawn(TrackKind.PresenceJoin, trayKey(player), dur(PRESENCE.joinDur));
+export function playPlayerJoin(player: number, board?: AnimatableBoard): void {
+  const tray = runner.spawn(TrackKind.PresenceJoin, trayKey(player as PlayerId), dur(PRESENCE.joinDur));
   tray.a = PRESENCE.leaveDesaturate;
   tray.b = player;
 
@@ -822,7 +820,7 @@ export function playPlayerJoin(player: PlayerId, board?: BoardState): void {
     for (let ordinal = 0; ordinal < 3; ordinal++) {
       const tr = runner.spawn(
         TrackKind.PresenceJoin,
-        reserveKey(player, SIZES[s], ordinal),
+        reserveKey(player as PlayerId, SIZES[s], ordinal),
         dur(PRESENCE.joinDur),
         (s * 3 + ordinal) * PRESENCE.joinStagger * 0.3,
       );

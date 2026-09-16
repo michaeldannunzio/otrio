@@ -60,7 +60,16 @@ export { useAnimatedPiece, usePieceOffset } from './hooks/useAnimatedPiece';
 export type { AnimatedPieceOptions } from './hooks/useAnimatedPiece';
 
 export { useGameAnimations } from './hooks/useGameAnimations';
-export type { GameAnimationOptions } from './hooks/useGameAnimations';
+export type { AnimatableMoveRef, GameAnimationOptions } from './hooks/useGameAnimations';
+
+// The structural view the animation layer reads. Map a wire `GameSnapshot`
+// onto this — clients never hold an engine `GameState`.
+export type {
+  AnimatableBoard,
+  AnimatableCell,
+  AnimatableGame,
+  AnimatableWin,
+} from './core/view';
 
 // --- Components we own -----------------------------------------------------
 export { ImpactRings } from './components/ImpactRings';

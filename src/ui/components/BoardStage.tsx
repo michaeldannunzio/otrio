@@ -1,10 +1,25 @@
-import { Component, Suspense, lazy, useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
+import { PIECE_SIZES } from '../../net/protocol';
+import type { CellIndex, GameSnapshot, PieceSize, PlayerColor } from '../../net/protocol';
+import {
+  ARM_ANGLES,
+  ARM_RADIUS,
+  BOARD_TOP_Y,
+  PLAY_SPACES,
+  SPACE_PITCH,
+  STORAGE_SPACES,
+  slotTransform,
+} from '../../scene/Board';
 import type { SpacePointerInfo } from '../../scene/Board';
 import type { Insets } from '../../scene/CameraRig';
+import { AnimationDriver, useGameAnimations } from '../../scene/animation';
+import type { AnimatableGame } from '../../scene/animation';
+import { setSceneLayout } from '../../scene/animation/core/layout';
+import { Piece, PieceField } from '../../scene/Piece';
 import { getSceneTheme } from '../../styles/theme';
-import { interaction, placePiece, useNet, usePrefs, useUi } from '../../store';
+import { coloursOfSeat, interaction, placePiece, useNet, usePrefs, useUi } from '../../store';
 
 import { Button, Spinner } from './primitives';
 
@@ -41,6 +56,31 @@ import { Button, Spinner } from './primitives';
  */
 const LazyScene = lazy(() => import('../../scene/Scene'));
 
+/*
+ * Tell the animation runner where the board actually is.
+ *
+ * Module scope rather than an effect: this writes a plain module-level object
+ * with no DOM or GL dependency, and it has to be true before the first frame
+ * rather than after the first commit.
+ *
+ * Every value here currently equals the runner's own default, so this is a
+ * no-op today — which is exactly the point. The defaults are a second copy of
+ * numbers that Board.tsx owns, and a copy that agrees today is a copy that
+ * disagrees the first time the board changes. Sourcing them from the board
+ * makes the agreement structural.
+ *
+ * `surfaceY` is the board's flat top, not `SEAT_Y` (where a piece's underside
+ * rests inside its recess) — the two differ by ~0.05 world units. The runner's
+ * own default is 0.26, which is `BOARD_TOP_Y`, so that is the reading its
+ * author intended.
+ */
+setSceneLayout({
+  spacePitch: SPACE_PITCH,
+  surfaceY: BOARD_TOP_Y,
+  armAngle: [...ARM_ANGLES] as [number, number, number, number],
+  armRadius: ARM_RADIUS,
+});
+
 /** Cheap capability probe. Cached: creating contexts is not free. */
 let webglSupported: boolean | null = null;
 function hasWebGL(): boolean {
@@ -64,6 +104,9 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
   // `system`, and the two can disagree for a frame after an OS flip.
   const theme = usePrefs((s) => s.mode);
   const armedSize = useUi((s) => s.selectedSize);
+  // Changes only when a snapshot arrives, so the piece layer re-renders exactly
+  // when the position actually changed.
+  const game = useNet((s) => s.room?.game ?? null);
 
   useEffect(() => {
     setSupported(hasWebGL());
@@ -134,10 +177,202 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
           // is switched off, so a stray tap cannot look like a refused move.
           interactive
           pickable={isMyTurn ? 'play' : 'none'}
-        />
+          /*
+           * The animation runner's frame hook. It has to be the *first* child
+           * of the scene graph and has to keep `useFrame` priority 0 -- any
+           * non-zero priority flips r3f into manual render mode and blanks the
+           * canvas. `Scene` has a dedicated `frameDriver` slot precisely so
+           * this lands first regardless of how the rest of the tree is built.
+           */
+          frameDriver={<AnimationDriver />}
+        >
+          {/*
+           * Board-local, so pieces turn with the board. `worldChildren` is the
+           * slot for things that must NOT turn.
+           *
+           * Until this existed, `BoardStage` passed no children at all -- which
+           * meant `PieceField`, `Piece`, every material, every piece geometry
+           * and the whole animation stack were dead code at runtime. The board
+           * drew; no piece ever did.
+           */}
+          <BoardPieces game={game} />
+        </LazyScene>
       </Suspense>
     </SceneBoundary>
   );
+}
+
+/* -------------------------------------------------------------------------- *
+ * Pieces
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Every ring currently on the board, plus every ring still in storage.
+ *
+ * One `<PieceField>` wraps the lot: it batches into three instanced meshes (one
+ * per size) and every `<Piece>` below it joins that batch wherever it sits in
+ * the tree, so 36 rings cost three draw calls rather than 36.
+ *
+ * Keys are `cell-size` and `colour-slot-size` -- stable identities, so a piece
+ * that stays put keeps its instance across re-renders and only genuinely new
+ * pieces mount. That is what lets the animation layer attach to a piece's
+ * arrival rather than seeing the whole field replaced on every snapshot.
+ */
+function BoardPieces({ game }: { game: GameSnapshot | null }) {
+  useBoardAnimations(game);
+  if (!game) return null;
+  return (
+    <PieceField pitch={SPACE_PITCH}>
+      <PlayedPieces game={game} />
+      <StoredPieces game={game} />
+    </PieceField>
+  );
+}
+
+/**
+ * Drive the animation layer from the wire snapshot.
+ *
+ * `AnimatableGame` is a structural view type that exists precisely so this
+ * mapping needs no fabrication: the client never has an engine `GameState` and
+ * must not invent a `config` or a `history` to satisfy one. `board` is passed
+ * straight through -- `CellState` already satisfies `AnimatableCell`.
+ *
+ * The hook must be called unconditionally, so it sits above the `!game` guard
+ * and takes `null` while there is no game.
+ */
+function useBoardAnimations(game: GameSnapshot | null): void {
+  const seat = useNet((s) => s.seat);
+  const room = useNet((s) => s.room);
+
+  // Colours, not the seat. A seat in the official 2-player game owns two
+  // colours on *opposite* arms, so a seat index here would fly remote pieces in
+  // from the wrong side of the board and dim the wrong tray.
+  const localColours = useMemo(
+    () => (seat === null ? [] : coloursOfSeat(room, seat)),
+    [room, seat],
+  );
+
+  const view = useMemo<AnimatableGame | null>(() => {
+    if (!game) return null;
+    const line = game.winningLine;
+    return {
+      board: game.board,
+      colorsInPlay: game.colorsInPlay,
+      currentColor: game.turnColors[0] ?? game.colorsInPlay[0] ?? 0,
+      currentSeat: game.turn,
+      moveCount: game.moveCount,
+      status: game.phase === 'playing' ? 'playing' : game.isDraw ? 'draw' : 'won',
+      // An array because one placement can complete more than one Otrio.
+      win: line
+        ? [
+            {
+              kind:
+                line.kind === 'ascending'
+                  ? 'sequence'
+                  : line.kind === 'concentric'
+                    ? 'nested'
+                    : 'same-size',
+              cells: line.cells,
+              sizes: line.sizes,
+              color: line.color,
+            },
+          ]
+        : null,
+      skipped: game.skipped,
+    };
+  }, [game]);
+
+  useGameAnimations({
+    state: view ?? EMPTY_GAME_VIEW,
+    localPlayers: localColours,
+    enabled: view !== null,
+  });
+}
+
+/** Stand-in while there is no game, so the hook is never called conditionally. */
+const EMPTY_GAME_VIEW: AnimatableGame = {
+  board: Array.from({ length: 9 }, () => ({ small: null, medium: null, large: null })),
+  colorsInPlay: [],
+  currentColor: 0,
+  currentSeat: 0,
+  moveCount: 0,
+  status: 'playing',
+  win: null,
+};
+
+/** The rings in the central 3x3. */
+function PlayedPieces({ game }: { game: GameSnapshot }) {
+  const out: ReactElement[] = [];
+  for (let cell = 0; cell < PLAY_SPACES.length; cell += 1) {
+    const state = game.board[cell];
+    if (!state) continue;
+    for (const size of PIECE_SIZES) {
+      const colour = state[size];
+      // `=== null` rather than a truthiness test: colour 0 is purple, and is
+      // falsy. This is the single most common bug in this codebase.
+      if (colour === null || colour === undefined) continue;
+      out.push(
+        <PlacedPiece key={`${cell}-${size}`} cell={cell as CellIndex} size={size} colour={colour} />,
+      );
+    }
+  }
+  return <>{out}</>;
+}
+
+function PlacedPiece({
+  cell,
+  size,
+  colour,
+}: {
+  cell: CellIndex;
+  size: PieceSize;
+  colour: PlayerColor;
+}) {
+  const space = PLAY_SPACES[cell];
+  if (!space) return null;
+  return <Piece player={colour} size={size} position={slotTransform(space, size).position} />;
+}
+
+/**
+ * The rings still on the arms.
+ *
+ * Not decoration. The board is cross-shaped precisely so each colour's unplayed
+ * pieces sit in the open where everyone can count them (RULES.md §1.1, §9), and
+ * in Otrio "can that colour still play a large?" decides most turns. The 2D
+ * reserve trays say the same thing in words; this is the version you read
+ * without looking away from the board.
+ *
+ * Layout follows the physical setup: each arm holds three nested sets of three,
+ * and a colour's arm index is its own index -- purple north, red east, green
+ * south, blue west, fixed by the rulebook artwork. Pieces deplete from the
+ * outermost storage space inward, so the arm visibly empties as the game runs.
+ */
+function StoredPieces({ game }: { game: GameSnapshot }) {
+  const out: ReactElement[] = [];
+  // `colorsInPlay`, never `0..n`: a three-player game leaves one colour out and
+  // its reserve reads {0,0,0}.
+  for (const colour of game.colorsInPlay) {
+    const reserve = game.reserves[colour];
+    if (!reserve) continue;
+    const spaces = STORAGE_SPACES.filter((s) => s.arm === colour).sort(
+      (a, b) => (a.armSlot ?? 0) - (b.armSlot ?? 0),
+    );
+    for (const size of PIECE_SIZES) {
+      for (let n = 0; n < reserve[size]; n += 1) {
+        const space = spaces[n];
+        if (!space) continue;
+        out.push(
+          <Piece
+            key={`store-${colour}-${size}-${n}`}
+            player={colour}
+            size={size}
+            position={slotTransform(space, size).position}
+          />,
+        );
+      }
+    }
+  }
+  return <>{out}</>;
 }
 
 function BoardLoading() {
