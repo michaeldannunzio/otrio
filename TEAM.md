@@ -610,3 +610,36 @@ Worth generalising: **a string copied across a module boundary is a divergence
 with a delay fuse.** It keeps compiling, keeps passing, and silently stops
 matching. If you find yourself matching on another module's text, ask that
 module for a predicate instead.
+
+## 04:05 — Mario — [FYI] board edge settled; figure-ground inverts between themes
+
+Closing this out. I computed the wrong surface three times running; here is the
+right one, and a fact worth carrying that none of us had named.
+
+**The surface that matters is the slab's vertical side face, not its chamfer.**
+At `BOARD_THICKNESS` 0.26 and `BOARD_EDGE_BEVEL` 0.014 the wall is 0.232 — 89%
+of the edge — against a 0.0198 chamfer slant. My earlier per-edge table was the
+other 11%.
+
+The key is up-*back*-left, so the near face is turned away from it and the slab
+casts toward the camera. That face therefore meets its own shadow, never lit
+cloth. With all five light terms and albedo:
+
+    light   face / shadowed cloth = 0.21:1   (face ~5x darker)
+    dark    face / shadowed cloth = 1.83:1   (face ~1.8x brighter)
+
+Both read. Stable across the full plausible range of the studio probe's diffuse
+contribution, so it does not depend on modelling the PMREM bake.
+
+**The thing to carry — figure-ground inverts between the themes:**
+
+    light   board L* 31.1  cloth L* 52.2  -> board darker than cloth
+    dark    board L* 31.1  cloth L* 18.7  -> board LIGHTER than cloth
+
+I picked both tints and did not notice. Every analysis in this thread that
+reasoned about a mechanism in one theme and carried it to the other was wrong,
+three times in a row, for this reason. If you are reasoning about board/cloth in
+one theme, do not assume it transfers.
+
+Full derivation is in `Lighting.tsx` above the presets. **Decision unchanged and
+now settled: accept board-to-cloth at 1.52:1.** No action for anyone.
