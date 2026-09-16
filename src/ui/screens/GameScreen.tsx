@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
-import { useNet, usePrefs, useUi } from '../../store';
+import { moveLog, useNet, usePrefs, useUi } from '../../store';
 import type { Insets } from '../../scene/CameraRig';
 import { useMediaQuery, useScreenFocus } from '../lib/a11y';
 import { IconButton } from '../components/primitives';
@@ -10,6 +10,7 @@ import { TurnBanner } from '../hud/TurnBanner';
 import { PlayerRail } from '../hud/PlayerRail';
 import { SizePicker } from '../hud/SizePicker';
 import { TextBoard } from '../hud/TextBoard';
+import { MoveLog } from '../hud/MoveLog';
 import { ResultOverlay } from './ResultOverlay';
 
 /**
@@ -48,6 +49,10 @@ export function GameScreen() {
   // Matches the breakpoint at which layout.css docks `.app-panel-start`, so the
   // rail is rendered in exactly one place and never in both.
   const panelDocked = useMediaQuery('(min-width: 1024px)');
+  // layout.css reserves the second rail for the move log from xl up, and says
+  // so in its own header comment. Matching the breakpoint here keeps the log in
+  // exactly one place rather than both.
+  const logDocked = useMediaQuery('(min-width: 1440px)');
 
   // The accessible board docks to the bottom edge when it is pinned open, so
   // the shell has to give up that space rather than let the two overlap.
@@ -55,6 +60,13 @@ export function GameScreen() {
   const textBoardOpen = useUi((s) => s.textBoardOpen);
 
   useScreenFocus(headingRef, 'game');
+
+  // Accumulate the move history. The wire has no history, so this diffs
+  // consecutive snapshots -- see moveLogStore.ts for what that has to survive.
+  const game = useNet((s) => s.room?.game ?? null);
+  useEffect(() => {
+    moveLog.observe(game);
+  }, [game]);
 
   // How much of the canvas the interface is sitting on top of. The scene fits
   // the board into what is left, so the board is never centred behind the size
@@ -106,6 +118,12 @@ export function GameScreen() {
             <SizePicker />
           </div>
         </main>
+
+        {logDocked ? (
+          <aside className="app-panel-end o-panel" aria-label="Move history">
+            <MoveLog />
+          </aside>
+        ) : null}
       </div>
 
       {/*

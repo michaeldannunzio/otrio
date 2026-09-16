@@ -30,6 +30,8 @@ export { usePrefs, watchTheme, PREFS_STORAGE_KEY } from './prefsStore';
 export type { Prefs, PrefsStore, ThemePref, MotionPref } from './prefsStore';
 
 export { useUi, ui } from './uiStore';
+export { useMoveLog, moveLog } from './moveLogStore';
+export type { MoveLogEntry } from './moveLogStore';
 export type {
   Announcement,
   EntryView,

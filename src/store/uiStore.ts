@@ -84,7 +84,13 @@ export interface Toast {
  * At most one overlay at a time. A stack would be more general and would also
  * mean two focus traps fighting on a 360px screen; one is the right number.
  */
-export type SheetId = 'settings' | 'players' | 'room-info' | 'leave-confirm' | 'how-to-play';
+export type SheetId =
+  | 'settings'
+  | 'players'
+  | 'room-info'
+  | 'leave-confirm'
+  | 'how-to-play'
+  | 'move-log';
 
 /** Which pre-room screen the player is looking at. */
 export type EntryView = 'home' | 'join' | 'create';

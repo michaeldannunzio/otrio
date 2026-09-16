@@ -1499,6 +1499,115 @@
 
 .o-plist__countLabel { color: var(--text-muted); }
 
+/* ──────────────────────────── move log ────────────────────────────────── */
+
+/*
+ * Docked in the second rail from xl up (layout.css reserves it), and a sheet
+ * below that. It is the visual half of something that already existed only as
+ * speech: every move goes to a polite live region, which no sighted player ever
+ * perceives.
+ */
+.o-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.o-log__heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+
+.o-log__list {
+  flex: 1 1 auto;
+  /* A flex item defaults to `min-height: auto` and would refuse to shrink,
+   * silently defeating the scroll below it. */
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.o-log--compact .o-log__list {
+  max-height: 50vh;
+}
+
+.o-log__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--player-current);
+  background-color: var(--surface-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+/* Recovered from a board diff after a reconnect: played, but not necessarily
+ * in this order. Marked rather than hidden, and explained once at the bottom. */
+.o-log__row.is-inferred {
+  border-inline-start-style: dashed;
+  opacity: 0.8;
+}
+
+.o-log__n {
+  flex: none;
+  min-inline-size: 1.5em;
+  text-align: end;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+
+.o-log__text { min-width: 0; }
+
+.o-log__who {
+  font-weight: var(--weight-semibold);
+  color: var(--player-current-ui);
+}
+
+.o-log__mark { color: var(--text-muted); }
+
+.o-log__note {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.o-log__empty,
+.o-log__caveat {
+  margin: 0;
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  text-wrap: balance;
+}
+
+.o-log__caveat {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* The docked rails are plain columns; their children own their own scrolling. */
+.o-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--space-3);
+}
+
 /* ──────────────────────── accessible text board ───────────────────────── */
 
 /*

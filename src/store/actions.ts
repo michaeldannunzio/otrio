@@ -16,6 +16,7 @@ import type { CommandResult } from './transportStore';
 import { useUi } from './uiStore';
 import { usePrefs } from './prefsStore';
 import { interaction } from './interactionStore';
+import { moveLog } from './moveLogStore';
 import { defaultSize } from './selectors';
 import { coloursOfSeat, reserveOfColour, turnColours } from './colours';
 
@@ -71,6 +72,7 @@ export async function leaveRoom(): Promise<CommandResult<void>> {
   const result = await runCommand((t) => t.leaveRoom());
   useUi.getState().resetForNewRoom();
   interaction.get().reset();
+  moveLog.clear();
   return result;
 }
 

@@ -13,6 +13,7 @@ import { Sheet } from '../components/Sheet';
 import { Button, Field, Segmented, Switch } from '../components/primitives';
 import { RoomCodeDisplay } from '../components/RoomCode';
 import { PlayerDetails } from '../hud/PlayerRail';
+import { MoveLog } from '../hud/MoveLog';
 
 /**
  * Everything behind the menu button: preferences, the room code again (for the
@@ -31,6 +32,9 @@ export function Sheets() {
       <SettingsSheet open={sheet === 'settings'} onClose={closeSheet} />
       <Sheet open={sheet === 'players'} onClose={closeSheet} title="Players">
         <PlayerDetails />
+      </Sheet>
+      <Sheet open={sheet === 'move-log'} onClose={closeSheet} title="Moves">
+        <MoveLog compact />
       </Sheet>
       <RoomInfoSheet open={sheet === 'room-info'} onClose={closeSheet} />
       <LeaveSheet open={sheet === 'leave-confirm'} onClose={closeSheet} />
@@ -98,6 +102,15 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           checked={prefs.haptics}
           onChange={() => prefs.toggle('haptics')}
         />
+
+        {room && inGame ? (
+          // Below xl the log has no rail, so this is its only route. Without it
+          // the feature would be built and unreachable, which is the state it
+          // was already in as a live region nobody could see.
+          <Button block onClick={() => openSheet('move-log')}>
+            Moves so far
+          </Button>
+        ) : null}
 
         {room ? (
           <div className="o-settings__section">

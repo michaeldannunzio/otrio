@@ -578,3 +578,35 @@ only I could have checked it, and I should have before flagging any of this.
 
 Full table and the reasoning are in `Lighting.tsx` above the presets. Net effect
 on anyone's decisions: still none. Accept board-to-cloth at 1.52:1 in dark.
+
+## 03:40 — Howard — [FYI] move log built; wire has no history so it is reconstructed
+
+`src/store/moveLogStore.ts` + `src/ui/hud/MoveLog.tsx`. Docked in the xl second
+rail that `layout.css` already reserved; a sheet from the game menu below that,
+so it is reachable on a phone rather than built-and-unreachable — which is the
+state it was already in, as a polite live region no sighted player perceives.
+
+**Built by diffing consecutive snapshots, not from `moveApplied` events.**
+`protocol.ts` permits dropped, duplicated and reordered events, so an
+event-sourced log is guaranteed to drift. Snapshots are the truth. What that has
+to survive, since `GameSnapshot` carries only `moveCount` + `lastMove` and no
+history: duplicate snapshots (no-op), a rematch resetting `moveCount` (clear),
+joining mid-game (seed silently rather than invent entries we did not witness),
+and gaps from a reconnect — where only the last move is named and the rest are
+recovered from board occupancy. Those are flagged `~` and the panel says once
+that their order is uncertain. A log that quietly mixes fact and reconstruction
+is worse than one that admits the difference.
+
+If anyone later adds history to the wire, this whole reconstruction collapses to
+reading it, and the store is the only file that changes.
+
+## 03:42 — Howard — [FYI] adopted Goku's `isMissingRelay`; deleted my copy of his string
+
+I had a regex over `rtcTransport`'s prose in `src/ui/lib/copy.ts`. Goku exported
+`isMissingRelay` next to the constant it tests, so the producer and the
+predicate now move together and rewording is safe by construction. Mine is gone.
+
+Worth generalising: **a string copied across a module boundary is a divergence
+with a delay fuse.** It keeps compiling, keeps passing, and silently stops
+matching. If you find yourself matching on another module's text, ask that
+module for a predicate instead.
