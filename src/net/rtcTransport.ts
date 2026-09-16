@@ -825,14 +825,7 @@ export class RtcTransport implements Transport {
       const urls = typeof s.urls === 'string' ? [s.urls] : s.urls;
       return urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
     });
-    // Diagnosis only, deliberately: what to *do* about it is a claim about
-    // affordances the UI may or may not offer, and this string cannot know
-    // whether a "switch to the hosted game" control exists. Telling someone to
-    // press a button that isn't there is worse than saying nothing. The UI
-    // layer owns the instruction; this owns the fact.
-    return hasTurn
-      ? 'a TURN relay is configured but no path through it worked — check the TURN credentials, or this network may block relays too'
-      : 'no TURN relay is configured, so networks that block direct peer-to-peer traffic cannot be used';
+    return hasTurn ? ADVICE_RELAY_UNUSABLE : ADVICE_NO_RELAY;
   }
 
   /* ---------------------- signalling ---------------------- */
@@ -1690,6 +1683,41 @@ export class RtcTransport implements Transport {
  * refuses us for a reason we do not recognise is still "could not reach the
  * lobby", and that is the screen they should get.
  */
+/* -------------------------------------------------------------------------- *
+ * Why a direct connection failed, and how the UI can tell the two apart.
+ *
+ * Both are `PEER_UNREACHABLE`, but they are different people's problems:
+ * nobody configured a relay is a deployment fix that will never resolve on a
+ * retry, while a configured-but-unusable relay can be transient. The UI offers
+ * different actions for each, so it needs to distinguish them.
+ *
+ * Diagnosis only, deliberately. What to *do* about it is a claim about
+ * affordances this layer cannot see: a string here cannot know whether a
+ * "switch to the hosted game" control exists, and telling someone to press a
+ * button that was never built is worse than saying nothing. State the world;
+ * the UI owns the remedy.
+ * -------------------------------------------------------------------------- */
+
+export const ADVICE_NO_RELAY =
+  'no TURN relay is configured, so networks that block direct peer-to-peer traffic cannot be used';
+
+export const ADVICE_RELAY_UNUSABLE =
+  'a TURN relay is configured but no path through it worked — check the TURN credentials, ' +
+  'or this network may block relays too';
+
+/**
+ * True when a `PEER_UNREACHABLE` failure was "nobody configured a relay".
+ *
+ * Exported so the UI branches on a function rather than on a copy of the
+ * sentence above. Matching the prose from another module is a divergence with a
+ * delay fuse — reword the message and the branch silently stops firing, which
+ * here would mean offering a "try again" button whose only possible outcome is
+ * to fail again. Keeping the test next to the string makes rewording safe.
+ */
+export function isMissingRelay(err: { code?: string; message?: string } | null | undefined): boolean {
+  return err?.code === 'PEER_UNREACHABLE' && (err.message ?? '').includes(ADVICE_NO_RELAY);
+}
+
 function signalErrorCode(code: string): ErrorCode {
   switch (code) {
     case 'ROOM_FULL': return 'ROOM_FULL';

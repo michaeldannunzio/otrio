@@ -15,7 +15,12 @@ import {
 } from '../../store';
 import type { VariantOptions } from '../../store';
 import { MAX_NAME_LENGTH, MAX_PLAYERS, MIN_PLAYERS } from '../../net/protocol';
-import { describeWireError, isMissingRelay } from '../lib/copy';
+import { describeWireError } from '../lib/copy';
+// Goku's predicate, exported from the module that emits the string it tests.
+// I had a copy of the regex here; house rule 3 -- a string copied across a
+// module boundary is a divergence with a delay fuse -- and this one had already
+// lit. Now the producer and the predicate move together.
+import { isMissingRelay } from '../../net/rtcTransport';
 import { isEnterableRoomCode } from '../lib/roomCode';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Field, Segmented, Switch } from '../components/primitives';
