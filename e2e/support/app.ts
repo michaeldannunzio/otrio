@@ -1,6 +1,6 @@
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 
-import { installThreeProbe } from './probe';
+import { disableWebGL, installThreeProbe } from './probe';
 
 /**
  * One player, one browser context, driven the way a person drives it.
@@ -36,7 +36,11 @@ export interface OpenOptions {
   query?: string;
   /** Pin the accessible flat board open instead of revealing it on focus. */
   pinTextBoard?: boolean;
+  /** Refuse every WebGL context, the way an old phone does. */
+  noWebGL?: boolean;
   viewport?: { width: number; height: number };
+  /** Runs against the fresh page before it navigates, for extra init scripts. */
+  beforeLoad?: (page: Page) => Promise<void>;
 }
 
 export class OtrioApp {
@@ -60,9 +64,12 @@ export class OtrioApp {
     page.on('console', (m) => app.consoleLog.push(`[${m.type()}] ${m.text()}`));
     page.on('pageerror', (e) => app.pageErrors.push(`${e.name}: ${e.message}`));
 
+    await muteHmr(page);
+    if (options.noWebGL) await disableWebGL(page);
     await installThreeProbe(page);
     if (options.pinTextBoard) await seedPrefs(page, { showTextBoard: true });
     if (options.viewport) await page.setViewportSize(options.viewport);
+    if (options.beforeLoad) await options.beforeLoad(page);
 
     await page.goto(options.query ? `/?${options.query}` : '/', { waitUntil: 'load' });
     await expect(page.getByRole('heading', { name: 'Otrio', level: 1 })).toBeVisible();
@@ -163,10 +170,20 @@ export class OtrioApp {
     await expect(this.page.locator('.o-turn.is-mine')).toBeVisible({ timeout: 30_000 });
   }
 
-  /** Arm a ring size through the size picker, exactly as a thumb would. */
+  /**
+   * Arm a ring size through the size picker, exactly as a thumb would.
+   *
+   * Skips the click when the size is already armed. `autoArmSize()` re-arms the
+   * largest ring held at the start of every turn, so most of the time it is,
+   * and clicking an already-selected radio is a no-op for a person too. It is
+   * not a no-op for the test: the button carries a selection transition, and
+   * Playwright waits for an animating element to be stable before clicking,
+   * which is long enough for the turn to move on underneath it.
+   */
   async armSize(size: PieceSize): Promise<void> {
     const label = size[0].toUpperCase() + size.slice(1);
     const option = this.page.getByRole('radio', { name: new RegExp(`^${label},`) });
+    if ((await option.getAttribute('aria-checked')) === 'true') return;
     await option.click();
     await expect(option).toHaveAttribute('aria-checked', 'true');
   }
@@ -176,6 +193,7 @@ export class OtrioApp {
    * 3D canvas calls, reached through a real button.
    */
   async place(cell: number, size: PieceSize): Promise<void> {
+    await this.waitForMyTurn();
     await this.armSize(size);
     const button = this.cell(cell);
     await expect(button).not.toHaveAttribute('aria-disabled', 'true');
@@ -219,7 +237,7 @@ export class OtrioApp {
 
   /** Rings left for the colour currently armed, by size, from the size picker. */
   async reserve(): Promise<Record<PieceSize, number>> {
-    const out: Record<string, number> = {};
+    const out = {} as Record<PieceSize, number>;
     for (const size of PIECE_SIZES) {
       const label = size[0].toUpperCase() + size.slice(1);
       const name = await this.page
@@ -228,7 +246,7 @@ export class OtrioApp {
       const m = name ? /(\d+) left/.exec(name) : null;
       out[size] = m ? Number(m[1]) : -1;
     }
-    return out as Record<PieceSize, number>;
+    return out;
   }
 
   /** The accessible name of a space — what a screen reader actually says. */
@@ -295,6 +313,28 @@ export class OtrioApp {
 export function colourFromClass(className: string | null): Colour | null {
   const m = className ? /\bu-player-([1-4])\b/.exec(className) : null;
   return m ? ((Number(m[1]) - 1) as Colour) : null;
+}
+
+/**
+ * Take Vite's hot-reload socket out of the loop.
+ *
+ * Ten agents share this tree, and a source file saved by any of them makes the
+ * dev server push a full page reload. Mid-test that wipes the room, the seat and
+ * the board, and the failure reads as a multiplayer bug — it took one confusing
+ * run to learn that. Intercepting the HMR socket and never forwarding it leaves
+ * the module graph exactly as it was served: the page runs, it just stops being
+ * told about edits.
+ *
+ * Only the dev-server socket is matched. The game's own WebSocket goes to port
+ * 8787 and must not be touched, or there is no product left to test.
+ */
+async function muteHmr(page: Page): Promise<void> {
+  await page.routeWebSocket(
+    (url) => url.port === '5173' || url.pathname.startsWith('/@vite'),
+    () => {
+      /* Accept and swallow: no `connectToServer`, so nothing reaches the page. */
+    },
+  );
 }
 
 /**

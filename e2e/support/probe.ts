@@ -48,20 +48,21 @@ export async function installThreeProbe(page: Page): Promise<void> {
  */
 export async function disableWebGL(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const original = HTMLCanvasElement.prototype.getContext;
-    // Signature is heavily overloaded; the cast is the narrowest way to keep
-    // the 2d path working while refusing every WebGL variant.
+    // The overload set on getContext is huge and none of it matters here: the
+    // patch either refuses or forwards untouched. Typing the captured original
+    // as a plain call signature is the narrowest way to say that.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- capturing a prototype method to forward to is the whole point of a monkey patch; it is re-bound explicitly with `.call(this, …)` below
+    const original = HTMLCanvasElement.prototype.getContext as (
+      this: HTMLCanvasElement,
+      ...args: unknown[]
+    ) => unknown;
     HTMLCanvasElement.prototype.getContext = function patched(
       this: HTMLCanvasElement,
       kind: string,
       ...rest: unknown[]
     ) {
       if (kind === 'webgl' || kind === 'webgl2' || kind === 'experimental-webgl') return null;
-      return (original as (this: HTMLCanvasElement, ...a: unknown[]) => unknown).call(
-        this,
-        kind,
-        ...rest,
-      );
+      return original.call(this, kind, ...rest);
     } as typeof HTMLCanvasElement.prototype.getContext;
   });
 }
@@ -121,9 +122,8 @@ export async function readGl(page: Page): Promise<GlReport> {
     const canvas = document.querySelector('canvas');
 
     const probe = document.createElement('canvas');
-    const gl =
-      (probe.getContext('webgl2') as WebGL2RenderingContext | null) ??
-      (probe.getContext('webgl') as WebGLRenderingContext | null);
+    const gl: WebGL2RenderingContext | WebGLRenderingContext | null =
+      probe.getContext('webgl2') ?? probe.getContext('webgl');
     let driver: string | null = null;
     if (gl) {
       const ext = gl.getExtension('WEBGL_debug_renderer_info');

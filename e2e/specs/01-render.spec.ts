@@ -98,6 +98,65 @@ test.describe('rendering', () => {
     }
   });
 
+  test('a placed ring appears on the 3D board', async ({ browser }) => {
+    /*
+     * The 3D board is the product. The flat board is the accessible parallel,
+     * and it is entirely possible for one to be right while the other is not —
+     * they read the same state through different components. This is the test
+     * that tells them apart: place four rings, then ask the renderer whether
+     * the scene grew, and look at the picture.
+     */
+    const table = await openTable(browser, ['Ada', 'Grace'], { pinTextBoard: true });
+    try {
+      const apps = table.apps;
+      const viewer = apps[0];
+      await viewer.waitForBoard();
+      await viewer.page.waitForTimeout(2_000);
+
+      const empty = await readGl(viewer.page);
+      const before = await captureAndAnalyse(viewer.page, '08-board-empty');
+      test.info().annotations.push({ type: 'screenshot', description: before.path });
+
+      for (let ply = 1; ply <= 4; ply += 1) {
+        const mover = (await apps[0].isMyTurn()) ? apps[0] : apps[1];
+        await mover.place(ply - 1, 'large');
+        for (const app of apps) {
+          await expect.poll(() => app.pieceCount()).toBe(ply);
+        }
+      }
+
+      // The flat board agrees four rings are down. Whatever the scene shows,
+      // the authoritative state says there are four pieces.
+      expect(await viewer.pieceCount()).toBe(4);
+      await viewer.page.waitForTimeout(2_000);
+
+      const filled = await readGl(viewer.page);
+      const after = await captureAndAnalyse(viewer.page, '09-board-four-rings');
+      test.info().annotations.push({ type: 'screenshot', description: after.path });
+      test.info().annotations.push({
+        type: 'gl',
+        description: `empty=${JSON.stringify(empty)} filled=${JSON.stringify(filled)}`,
+      });
+
+      /*
+       * Four rings are four more meshes. Whether they share a geometry or a
+       * material, they cannot be drawn for free: either the draw-call count
+       * goes up, or the triangle count does.
+       */
+      const grew =
+        (filled.drawCalls ?? 0) > (empty.drawCalls ?? 0) ||
+        (filled.triangles ?? 0) > (empty.triangles ?? 0);
+      expect(
+        grew,
+        `the scene drew the same frame with four rings on the board as without them ` +
+          `(calls ${empty.drawCalls} -> ${filled.drawCalls}, ` +
+          `triangles ${empty.triangles} -> ${filled.triangles})`,
+      ).toBe(true);
+    } finally {
+      await table.close();
+    }
+  });
+
   test('the lobby shows a joinable code and no colours', async ({ browser }) => {
     const table = await openTable(browser, ['Ada', 'Grace'], { lobbyOnly: true });
     try {

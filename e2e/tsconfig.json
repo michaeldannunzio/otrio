@@ -1,0 +1,29 @@
+{
+  "//": [
+    "The end-to-end suite, as its own project.",
+    "",
+    "Deliberately NOT referenced from the root tsconfig.json solution, so",
+    "`npm run typecheck` / `tsc -b` still cover exactly the three runtimes they",
+    "covered before (app / node / server) and a change here cannot break a",
+    "production build. Playwright transpiles these files itself.",
+    "",
+    "It exists because eslint.config.js uses typescript-eslint's",
+    "`projectService`, which needs every linted .ts file to belong to some",
+    "project. Without this file `eslint .` fails on e2e/ before it lints a line.",
+    "",
+    "Both libs are needed: node for the test process (fs, /proc/loadavg) and DOM",
+    "for the bodies of page.evaluate(), which are written here and run in the",
+    "browser."
+  ],
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}
