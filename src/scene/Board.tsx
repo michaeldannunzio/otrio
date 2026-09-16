@@ -216,16 +216,21 @@ export type ThemeMode = 'light' | 'dark';
  * ===========================================================================
  *
  * These multiply the carbonized-bamboo albedo from textures.ts. They are NOT
- * the same thing as `styles/theme.ts`'s `scene.board.base`, and deliberately
- * so: that value is an absolute flat colour for the 2D chrome that depicts the
- * board (the text-board fallback, swatches, the CSS frame), whereas this is a
- * multiply over a real wood scan. Feeding a near-white #f0f3f8 into
- * `material.color` would bleach the bamboo into grey plastic and lose exactly
- * the physicality RULES.md §9 and the brief both require.
+ * interchangeable with the flat board colours the 2D chrome uses, and the
+ * distinction is not stylistic: a token like that is an absolute colour for a
+ * flat surface, this is a MULTIPLY over a real wood scan. Feed a near-white
+ * absolute value into `material.color` and it bleaches the bamboo into grey
+ * plastic, losing exactly the physicality RULES.md §9 and the brief require.
+ *
+ * (The theme layer once carried its own `scene.board` for this and it has since
+ * been deleted, because nothing in the scene read it. That is the shape of the
+ * hazard: a plausible second value for the same concept, sitting where someone
+ * would reasonably reach for it.)
  *
  * Division of ownership, so there is one source of truth for each:
  *   - THIS is canonical for the 3D board material.
- *   - `styles/tokens.ts` `boardBase`/`boardLine` stay canonical for 2D chrome.
+ *   - `styles/tokens.ts` `boardBase`/`boardLine` are canonical for 2D chrome,
+ *     and mirror these.
  *
  * WHY THESE VALUES. The constraint that sets them is the piece OUTLINE, not the
  * board. `Piece`/`materials` draw an inverted-hull rim in `players[i].rim` with
@@ -234,41 +239,58 @@ export type ThemeMode = 'light' | 'dark';
  * Its floor is 3:1. That floor is an accessibility guarantee, not a preference,
  * so it is what caps how light this can go.
  *
- * The rim set is theme-independent (#be85f8 #fd7749 #81ac26 #67c8e6) and is no
- * longer derived against a board colour at all — it is derived against a
- * published limit, `RIM_BOARD_CEILING_LSTAR = 34` in `styles/tokens.ts`. That
- * indirection is the fix for a real bug: the previous rim set was derived
- * against `scene.board.base` #f0f3f8, a surface this scene has never rendered,
- * and silently sat at 1.31:1. Retint freely at or below L* 34; above it, ask
- * theming to re-derive rather than assuming the set degrades gracefully.
+ * The rim set is theme-independent and is no longer derived against a board
+ * colour at all — it is derived against a published limit,
+ * `RIM_BOARD_CEILING_LSTAR` in `styles/tokens.ts`. Read the constant; do not
+ * copy its value here. That indirection is the fix for a real bug: the previous
+ * rim set was derived against `scene.board.base`, a surface this scene has
+ * never rendered, and silently sat at 1.31:1 against the board as shipped. A
+ * file restating another file's number is exactly how that happened.
+ *
+ * So: retint freely at or below the constant. Above it, ask theming to
+ * re-derive rather than assuming the set degrades gracefully — it does not.
+ *
+ * Measured when these values were chosen, against the rim set of that date.
+ * Evidence for the choice, not a live table — re-measure before relying on it:
  *
  *     tint      L*     worst rim contrast
  *     #453626   23.8   4.35:1
- *     #584633   31.1   3.36:1   <- here. ~3 L* of margin left.
- *     #604d35   34.1   3.01:1   <- the published ceiling
+ *     #584633   31.1   3.36:1   <- here
+ *     #604d35   34.1   3.01:1   <- at the ceiling of the day
  *     #665238   36.3   2.78:1   BELOW FLOOR
  *
  * Deliberately NOT at the ceiling. Hex-vs-hex contrast is optimistic here: the
  * rim is `toneMapped: false` so it renders at its literal sRGB value, while the
  * board is lit and tone-mapped and therefore renders lighter than its albedo.
- * The margin absorbs that. If a colour-picker on a real screenshot shows the
- * rendered board above L* 34 equivalent, that measurement beats this arithmetic
- * and theming re-derives against it.
+ * The margin absorbs that. If a colour-picker on a real screenshot puts the
+ * rendered board above the ceiling constant, that measurement beats this
+ * arithmetic and theming re-derives against it.
  *
- * HOW MUCH ROOM ACTUALLY EXISTS, so nobody has to re-ask:
+ * HOW MUCH ROOM EXISTS, for the next person told to make the board lighter.
+ * Deliberately no thresholds here: `RIM_BOARD_CEILING_LSTAR` in
+ * `styles/tokens.ts` is the authority, and the ladder above it is documented
+ * beside that constant. Restating either here is how a file ends up describing
+ * a palette that has since moved — which is the bug that produced this whole
+ * comment block. What follows is only the part this file owns.
  *
- *   L* 31.1  here. 2.9 below the published ceiling, unspent on purpose.
- *   L* 34    the published ceiling. Free.
- *   L* 36    the real wall. Theming has 2 L* in hand above the published
- *            figure; taking it costs only red's rim chroma, 69 -> 65. Ask.
- *   L* 38    a CLIFF, not a gradient. Green's fill is L* 79.9; up to a ceiling
- *            of 36 its rim sits at L* 67, safely under it. At 38 the rim is
- *            pushed into its own fill and has to jump over to L* 91 — a pale
- *            yellow-green that stops reading as the green player's colour.
+ *   1. There is unspent margin BELOW the published ceiling right now. These
+ *      tints sit under it on purpose (see the tone-mapping note above), so the
+ *      first move for "still too dark" is to spend that, changing nothing but
+ *      the two values below and re-checking against the same constant.
  *
- * So: lightening further is free to 36 and expensive past it, and the expense
- * is paid in a player's identity rather than in contrast. Past 36, change the
- * board rather than the rims, and take it to the director first.
+ *   2. Above the ceiling, theming holds a little slack and giving it up costs
+ *      only chroma on one rim. Ask them; it is cheap and it is theirs to give.
+ *
+ *   3. Past that slack there is a CLIFF, not a gradient, and the mechanism is
+ *      stable even though the numbers are not. Green has the lightest fill of
+ *      the four players. Raise the board far enough and green's rim is pushed
+ *      up into its own fill, so it has to jump OVER the fill to stay visible —
+ *      landing on a pastel yellow-green that no longer reads as that player.
+ *
+ * So the escalation rule, which is the durable part: lightening the board is
+ * cheap until it starts costing a player's identity rather than contrast. At
+ * that point change the board, not the rims, and take it to the director — it
+ * is a product decision and must not be absorbed as a derivation detail.
  *
  * SAME VALUE IN BOTH THEMES, on purpose. The board is a wooden object; it does
  * not repaint when the 2D chrome does. What changes between themes is the light
