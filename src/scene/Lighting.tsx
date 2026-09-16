@@ -85,32 +85,47 @@
  *   with the key (2.5 -> 1.85). Reasoning from key intensity alone says the
  *   dark shadow is 26% weaker. It is 2.4% STRONGER.
  *
- *   CHAMFER HIGHLIGHT — depends entirely on which edge, because the key and the
- *   rim light different ones. N.L against both lights, times intensity and
- *   exposure:
+ *   THE EDGE ITSELF — reads in both themes, with OPPOSITE POLARITY.
  *
- *       edge                      light    dark    dark/light   camera sees it?
- *       near (+Z, faces camera)   0.909   0.921      1.01x      yes, prominently
- *       right (+X)                0.895   0.914      1.02x      yes, obliquely
- *       left (-X)                 2.172   1.575      0.73x      yes, obliquely
- *       far (-Z)                  2.154   1.562      0.73x      no: occluded by
- *                                                               the board's own
- *                                                               top at 34-52 deg
+ *   The surface to reason about is the slab's vertical side face, not its
+ *   chamfer: at BOARD_THICKNESS 0.26 and BOARD_EDGE_BEVEL 0.014 the wall is
+ *   0.232, which is 89% of the edge, against a 0.0198 chamfer slant.
  *
- *   The 0.73x is the key-lit pair; the near and right edges are carried by the
- *   rim, which moves the OTHER way in dark (0.35 -> 0.6, 1.71x) and more than
- *   compensates. So the most visible edge is the one that does not change.
+ *   The key is up-BACK-left, so the near side face is turned away from it
+ *   (N.L = 0) and the slab casts its shadow TOWARD the camera. The near face
+ *   therefore meets its own shadow on the cloth, never lit cloth. Comparing
+ *   those two, with albedo:
  *
- * The rim sits at (3.56, 3.14, 3.48) — +X +Z, 30 degrees elevation, i.e. on the
- * CAMERA's side, not behind the board. That is what makes this work, and it is
- * easy to assume otherwise from the name: a back-placed rim would protect the
- * far chamfer, which is the one edge nobody can see from a top-down-ish pitch.
+ *       light   face / shadowed cloth = 0.21:1   (face ~5x DARKER)
+ *       dark    face / shadowed cloth = 1.83:1   (face ~1.8x BRIGHTER)
  *
- * Net: only the left edge dims in dark theme, and it is an oblique edge with a
- * cast shadow under it. If a rendered frame still shows the board dissolving
- * into the cloth, reach for a shallower `keyDirection` — grazing angle across
- * the chamfer, without touching the shadow ratio or overall exposure — before
- * `keyIntensity`, and before the cloth, which cannot solve it at all.
+ *   Both are a clear edge. The polarity flips because the tints flip:
+ *
+ *       light   board L* 31.1  cloth L* 52.2  -> board darker than cloth
+ *       dark    board L* 31.1  cloth L* 18.7  -> board LIGHTER than cloth
+ *
+ *   That inversion is the thing to hold on to. Any argument about how the dark
+ *   theme's edge behaves that was reasoned from the light theme's mechanism is
+ *   wrong, and vice versa — which is exactly how three successive analyses of
+ *   this got it wrong before someone computed it.
+ *
+ *   These ratios are stable across the whole plausible range of the studio
+ *   probe's diffuse contribution (0.21 -> 0.20 and 1.91 -> 1.70 as it sweeps
+ *   0.5 to 2.5), so the conclusion does not depend on modelling the PMREM bake.
+ *
+ * Only the key-lit left edge dims in dark (0.73x), and it is oblique with a
+ * shadow under it. If a rendered frame still shows the board dissolving into
+ * the cloth, reach for a shallower `keyDirection` — grazing angle, without
+ * touching the shadow ratio or overall exposure — before `keyIntensity`, and
+ * before the cloth, which cannot solve it at all.
+ *
+ * NOTE ON THE RIM'S POSITION, because it is load-bearing and non-obvious. It
+ * sits at (3.56, 3.14, 3.48): +X +Z, 30 degrees, on the CAMERA's side, not
+ * behind the board. It was placed to separate piece silhouettes on the side the
+ * key does not reach. It ALSO happens to be the only light reaching the near
+ * side face, which is what gives that face its 1.68x lift in dark theme. That
+ * second job was not designed and was found by computing it. Move this light
+ * for the first reason and you will silently break the second.
  */
 
 import * as React from 'react';
