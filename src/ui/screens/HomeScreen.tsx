@@ -92,7 +92,7 @@ export function HomeScreen() {
         // But "try again" is only honest when trying again could work. With no
         // TURN relay configured there is nothing to retry into -- that is a
         // deployment fix, and a retry button would just be a button that fails.
-        offerRetry: copy.retry && !isMissingRelay(result.error.message),
+        offerRetry: copy.retry && !isMissingRelay(result.error),
       });
     }
   }

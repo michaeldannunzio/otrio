@@ -76,23 +76,41 @@
  * cannot reach 3:1 at all, and a cloth lighter than the board reads backwards
  * in a dark theme. So the slab's edge is carried by shading, not by albedo.
  *
- * Two mechanisms carry it, and they behave differently between themes. Worth
- * writing down because the obvious guess is wrong:
+ * Two mechanisms carry it. Both survive the dark preset, and the reasons are
+ * worth writing down because the obvious guess is wrong twice over.
  *
  *   CAST SHADOW — unchanged. Shadow visibility is a ratio, (key + fill) / fill,
- *   not an absolute. Light is 2.28:1 and dark is 2.33:1, because the dark
- *   preset drops the fill (env + hemi + ambient + rim: 1.96 -> 1.39) in step
+ *   not an absolute. Light is 2.276:1 and dark is 2.331:1, because the dark
+ *   preset drops the fill (env + hemi + rim + ambient: 1.96 -> 1.39) in step
  *   with the key (2.5 -> 1.85). Reasoning from key intensity alone says the
- *   dark shadow is 26% weaker; it is not, it is marginally stronger.
+ *   dark shadow is 26% weaker. It is 2.4% STRONGER.
  *
- *   CHAMFER HIGHLIGHT — genuinely dimmer, 0.73x, because a specular/diffuse
- *   response to the key scales with the key and nothing compensates.
+ *   CHAMFER HIGHLIGHT — depends entirely on which edge, because the key and the
+ *   rim light different ones. N.L against both lights, times intensity and
+ *   exposure:
  *
- * So the residual risk in dark theme is the lit edge, not the shadowed one. If
- * a rendered frame shows the board dissolving into the cloth there, reach for
- * `keyIntensity` or a shallower `keyDirection` (a grazier angle across the
- * chamfer) before retinting the cloth — the cloth cannot solve it and the
- * shadow is not the problem.
+ *       edge                      light    dark    dark/light   camera sees it?
+ *       near (+Z, faces camera)   0.909   0.921      1.01x      yes, prominently
+ *       right (+X)                0.895   0.914      1.02x      yes, obliquely
+ *       left (-X)                 2.172   1.575      0.73x      yes, obliquely
+ *       far (-Z)                  2.154   1.562      0.73x      no: occluded by
+ *                                                               the board's own
+ *                                                               top at 34-52 deg
+ *
+ *   The 0.73x is the key-lit pair; the near and right edges are carried by the
+ *   rim, which moves the OTHER way in dark (0.35 -> 0.6, 1.71x) and more than
+ *   compensates. So the most visible edge is the one that does not change.
+ *
+ * The rim sits at (3.56, 3.14, 3.48) — +X +Z, 30 degrees elevation, i.e. on the
+ * CAMERA's side, not behind the board. That is what makes this work, and it is
+ * easy to assume otherwise from the name: a back-placed rim would protect the
+ * far chamfer, which is the one edge nobody can see from a top-down-ish pitch.
+ *
+ * Net: only the left edge dims in dark theme, and it is an oblique edge with a
+ * cast shadow under it. If a rendered frame still shows the board dissolving
+ * into the cloth, reach for a shallower `keyDirection` — grazing angle across
+ * the chamfer, without touching the shadow ratio or overall exposure — before
+ * `keyIntensity`, and before the cloth, which cannot solve it at all.
  */
 
 import * as React from 'react';

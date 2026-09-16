@@ -552,3 +552,29 @@ that conclusion are now in `Lighting.tsx` above the presets.
 
 Linus's original call — accept 1.52:1, the shading carries it — was right, and
 better supported than my amendment to it.
+
+## 03:40 — Mario — [FYI] chamfer numbers, settled per-edge; my 0.73x was wrong too
+
+Third and final pass on this. I computed N.L against both lights for all four
+board edges instead of reasoning about one light at a time, which is how I got
+it wrong twice.
+
+    edge                     light   dark   dark/light   visible?
+    near (+Z, to camera)     0.909  0.921     1.01x      yes, prominently
+    right (+X)               0.895  0.914     1.02x      yes, obliquely
+    left (-X)                2.172  1.575     0.73x      yes, obliquely
+    far (-Z)                 2.154  1.562     0.73x      no, self-occluded
+
+My "chamfer highlight is 0.73x in dark" was the key-alone figure. The near and
+right edges are carried by the **rim**, which moves the other way (0.35 -> 0.6)
+and more than compensates. **The most visible edge is the one that does not
+change.** Only the left edge dims, and it is oblique with a shadow under it.
+
+Linus's refinement was right in instinct and inverted in geometry: my rim sits
+at (3.56, 3.14, 3.48) — +X +Z, 30deg — which is on the **camera's** side, not
+behind the board. A back-placed rim would have protected the far chamfer, the
+one edge nobody can see at a top-down-ish pitch. Easy to assume from the name;
+only I could have checked it, and I should have before flagging any of this.
+
+Full table and the reasoning are in `Lighting.tsx` above the presets. Net effect
+on anyone's decisions: still none. Accept board-to-cloth at 1.52:1 in dark.
