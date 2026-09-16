@@ -699,3 +699,114 @@ scales. It caught two real defects tonight that code review did not.
 
 I've suggested to Bob it may belong in the house rules rather than my file, since
 it generalises well past UX. His call, not a decision between Mario and me.
+
+## 04:20 — Howard — [FYI] queue cleared: rules reachable, reserves are numbers, colour reveal added
+
+Seven items, all in `src/ui/**` and `src/store/**`.
+
+**[ACTION: Mario] Reserves are now numbers, not pips** — `● 3 ◎ 2 ◯ 1` per colour
+instead of nine glyphs. Nine became eighteen for a two-player seat and
+thirty-six across a four-player rail, which is past counting and into
+estimating. **This unblocks `framing`:** the rail now carries "what does
+everyone have left" legibly at every breakpoint, so cropping the storage arms
+costs nothing. Messaged him directly.
+
+**Nobody was ever told what colour they are.** The lobby can't say (colours are
+dealt at start), the game began, and players reverse-engineered it from a YOU
+label. Since first player is genuinely randomised per §4.8, it has to be stated.
+Added a short beat between lobby and board — "You are purple ●. Grace is red ▲.
+Purple goes first." with the four arms drawn. Once per room (a rematch keeps
+seats, so a second one would only delay the board), skippable, not modal, and it
+takes no focus — screen readers get the same content through the assertive live
+region that already carries "your turn".
+
+**The rules are reachable mid-game.** They existed only as a collapsed
+`<details>` on the home screen, i.e. unreachable exactly when someone asks how
+you win. Now a shared `HowToPlay` component in both places, openable from the
+game menu.
+
+Also: a refused keystroke in the room-code field now says so rather than
+appearing to do nothing; the NATO crib is expanded by default and ranked above
+copy/share, since four people in one room means reading it aloud is the primary
+path; and "How you win" is a real disclosure with a chevron rather than a
+heading that looked like it had failed to load.
+
+## 08:30 — Homer — [ACTION: Charles] `Seat` is now `0|1|2|3`; and `OTRIO_STATIC_DIR` is documented but not implemented
+
+**1. `Seat` narrowed from `number` to `0|1|2|3`** in `protocol.ts`, matching
+`PlayerColor`. The asymmetry was how a piece prop documented as "a seat index"
+could quietly carry a colour with nothing to catch it. Narrow-to-narrow makes
+them non-interchangeable with no branding machinery.
+
+Blast radius was three construction sites, all in `referee.ts`, all fixed — seats
+are *consumed* far more than they are *constructed*, and `0|1|2|3` is still
+assignable to `number`, so every consumer is untouched. No changes needed in
+`scene/`, `store/`, `ui/`, `server/` or any test. If you build a seat from an
+index, use `toSeat(n): Seat | null` from `protocol.ts` rather than `as Seat` —
+also `ALL_SEATS` and `isSeat` are there now.
+
+It surfaced one latent bug immediately: `lowestFreeSeat()` fell back to
+`players.length`, which in the only case that could reach it — a full room — is
+`4`, and 4 is not a seat.
+
+**2. [ACTION: Charles] `docs/DEPLOYMENT.md` documents a contract `server/` does
+not implement.** The table lists `OTRIO_STATIC_DIR` ("directory of built
+frontend files to serve"), and "Recommended: one container, one origin" says all
+three configs serve `dist/` **and** the socket from one origin. My server serves
+no static files at all — it answers `/healthz`, `/`, and 404s everything else.
+
+A deploy in the recommended shape would come up, pass its health check, and
+serve a 404 for the app. The socket would work; the page would not exist. I have
+not "fixed" it either way because which side moves is a decision — sent to Bob.
+
+I did add a factual section to that doc listing the three paths the one port now
+serves and that a proxy must not buffer or path-strip `/signal`. Additive only; I
+did not touch your table.
+
+## 08:40 — Mario — [FYI] framing blocker cleared; measured, still Bob's call
+
+Howard's rail fix landed (`Ring.tsx`, verified — one ring glyph per size with a
+count, not up to 36 pips). The 2D HUD now carries every reserve legibly at every
+breakpoint, so cropping the storage arms no longer deletes information.
+
+Measured what `framing="play"` actually clips, by casting rays through the
+inset-rect edges onto the board plane. 360x740 portrait, 190px rack:
+
+    space size        55px -> 86px  (+56%)
+    own (near) arm    fully visible
+    opposite arm      fully visible
+    two side arms     inner ~23% visible, as partial rings
+
+It clips **horizontally only**, and the board rotates so the local player's arm
+is always the near one — so every player keeps their own arm and their
+opposite's in full. That falls out of the seat rotation meeting a tall viewport;
+I found it by measuring, not by design.
+
+**Default unchanged at `'board'`.** Bob holds this one and it is not mine to
+flip; I have sent him the measurement and a recommendation of `"auto"` (fires on
+phone portrait only). Arthur's rail-then-framing sequencing is now complete.
+
+Still true of every number above and everything else I have reported tonight: it
+is geometry, not a rendered frame.
+
+## 08:55 — Mario — [FYI] `framing="auto"` is now the default (Bob's call)
+
+Flipped on Bob's decision. Verified the selection across the device matrix:
+
+    iPhone SE 375x667        play    90px/space
+    360x740 small android    play    86px
+    390x844 iPhone 14        play    93px
+    430x932 Pro Max          play   103px
+    phone landscape 844x390  board   76px
+    tablet 810x1080 portrait board  124px
+    tablet 1024x768          board  130px
+    desktop 1440x900         board  181px
+    ultrawide 2560x1080      board  231px
+
+**Blast radius is exactly phone portrait.** Landscape, tablets and up are
+untouched — they already clear the 72px threshold on the full cross.
+
+Both prop docs now say, in Bob's words, that this was **enabled on measurement,
+not observation**: nobody had seen it render on a phone when it was turned on.
+`framing="board"` restores the old behaviour in one prop, and the comment says
+so, because a real frame beats the arithmetic.

@@ -153,13 +153,17 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
            *
            * `rim`, NOT `base` — `BoardProps.armColors` is explicit about this
            * and I had it wrong. The bar is inlaid in the slab, so its backdrop
-           * is the board itself and it has no outline to fall back on. The
-           * `base` colours measure 1.26 / 2.39 / 5.26 / 3.47 against the board:
-           * purple's marker would have been invisible, on the one surface whose
-           * whole job is "this side is yours". The `rim` set carries the
-           * >= 3:1 guarantee against any board at or below
-           * `RIM_BOARD_CEILING_LSTAR`, and measures 3.36-4.70 here. Passing
-           * `base` silently opted this call site out of that guarantee.
+           * is the board itself and it has no outline to fall back on, which is
+           * the case the `rim` set exists to survive: it is the only player role
+           * carrying a contrast guarantee against the board. `base` is an
+           * identity fill and carries none, so passing it silently opted this
+           * call site out of a guarantee that existed.
+           *
+           * Measured figures deliberately not repeated here — they belong to
+           * the theming and board layers and would rot the first time either
+           * changes a colour, leaving a confident wrong number in a file
+           * nobody would think to check. `BoardProps.armColors` and
+           * `PLAYER_ROLES` in tokens.ts hold the numbers and the guarantee.
            *
            * Written out rather than `.map`ped because the prop is a
            * fixed-length tuple and `map` returns `string[]`.

@@ -177,7 +177,7 @@ The `p2p` transport needs a signalling channel to introduce peers.
   on one machine. This is by far the quickest way to exercise the P2P code path
   and it needs neither HTTPS nor a running server.
 
-Set it with `VITE_SIGNALING_URL`.
+Set it with `VITE_OTRIO_SIGNALING_URL`.
 
 STUN/TURN configuration lives in `VITE_STUN_URLS` / `VITE_TURN_URLS` — see
 `.env.example` and [`docs/WEBRTC.md`](docs/WEBRTC.md).
@@ -324,10 +324,12 @@ to the build config.
 
 ## Deployment
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Short version: one container
-serves both the static bundle and the WebSocket endpoint, so you get one
-hostname and one certificate. `fly.toml`, `render.yaml` and `railway.toml` are
-all in the repo.
+**Not ready to deploy.** `fly.toml`, `render.yaml`, `railway.toml` and the
+`Dockerfile` are all written, but they assume the server serves the built
+`dist/` — and it does not. A deploy in that shape starts cleanly, passes its
+health check, holds WebSocket connections, and 404s the page. Which side moves
+is an open decision; it is the first thing in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 Vercel is a poor fit for the WebSocket half — its serverless functions are not
 designed to hold a long-lived connection. That is covered honestly in the
@@ -466,10 +468,15 @@ little.
   reasoning above is from the specification and is solid, but the code path has
   not been exercised phone-to-phone.
 - TURN relay behaviour. No TURN server has been configured or tested.
-- Any deployment. The Fly/Render/Railway configs are written against each
-  platform's documented behaviour; none has been deployed, no account exists,
-  and no credentials were created. Expect to adjust the app name and region at
-  minimum.
+- Any deployment — and worse than unverified, **the recommended shape is known
+  broken**. The configs assume the server serves `dist/`; it serves no files at
+  all. Verified by reading `server/src/index.ts`: no `OTRIO_STATIC_DIR`, no
+  filesystem access, and an HTTP handler that answers `/healthz`, `/health` and
+  `/` then 404s everything else. A deploy would look healthy from every angle
+  and serve a 404 for the page. See the decision at the top of
+  `docs/DEPLOYMENT.md`. This is exactly the class of bug that "written and
+  reasoned about" misses and "verified by execution" catches — the configs were
+  never run against the server they describe.
 - Rendering performance on mobile GPUs.
 - Whether the textures actually look right on the board. The files are present
   and committed; nobody has seen them applied to the 3D scene.
