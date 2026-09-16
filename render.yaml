@@ -1,0 +1,33 @@
+# Render - Blueprint (Infrastructure as Code).
+#
+# Deploy by pointing Render at this repo: New > Blueprint. Render reads this
+# file, builds the Dockerfile, and gives you an https:// URL with TLS already
+# terminated - which is what the phones need for WebRTC to be available.
+#
+# Render supports WebSockets on all plan types, including free.
+#
+# THE FREE-PLAN CAVEAT, stated plainly: free web services on Render spin down
+# after ~15 minutes without inbound traffic, and cold-starting takes tens of
+# seconds. Every open WebSocket is dropped when that happens, and any room
+# state held in memory is gone. For a game night that is survivable (you
+# reconnect and re-create the room); for anything you want to leave running,
+# use the Starter plan, where there is no spin-down.
+
+services:
+  - type: web
+    name: otrio
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free # -> starter to remove the idle spin-down
+    region: oregon # ohio / frankfurt / singapore - pick the nearest
+    autoDeploy: true
+
+    healthCheckPath: /
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OTRIO_STATIC_DIR
+        value: /app/dist
+      # Render injects PORT itself; the server must bind to it rather than a
+      # hardcoded port, or the health check never passes and the deploy fails.

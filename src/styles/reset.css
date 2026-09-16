@@ -1,0 +1,183 @@
+/* ===========================================================================
+ * reset.css — normalisation, plus the handling a full-screen 3D canvas app
+ * needs on a phone.
+ *
+ * The mobile-specific parts are not cosmetic. Without them:
+ *   - `100vh` sizes the layout to the LARGE viewport, so the bottom of the UI
+ *     sits under mobile Safari's toolbar and cannot be tapped.
+ *   - dragging a piece rubber-bands the whole page instead.
+ *   - a quick double-tap to place two pieces zooms the page instead.
+ *   - rotating to landscape silently inflates every font size on iOS.
+ * =========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+
+  /* Stop the document itself from bouncing when a gesture reaches its edge.
+   * Without this, dragging a piece past the board scrolls the page instead. */
+  overscroll-behavior: none;
+
+  /* iOS inflates font sizes when you rotate to landscape unless told not to.
+   * `100%` keeps the type scale the size we actually designed. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  /* `position: fixed` is the reliable way to stop iOS Safari's document-level
+   * rubber-band scroll. `overscroll-behavior` alone does not cover it. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+
+  /* Order matters. Browsers without `dvh` keep the `vh` line; browsers with it
+   * take the second, which tracks mobile toolbars as they show and hide. */
+  height: 100vh;
+  height: 100dvh;
+
+  overflow: hidden;
+  overscroll-behavior: none;
+
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+  color: var(--text-primary);
+  background-color: var(--bg);
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+
+/* Default to non-selectable: this is a game board, and a drag that selects
+ * text mid-move feels broken. Text that should be selectable opts back in
+ * with `.u-selectable`. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* `manipulation` removes double-tap-to-zoom and the legacy 300ms click delay
+ * WITHOUT disabling pinch-zoom. Never use `user-scalable=no` in the viewport
+ * meta for this — that takes away zoom from people who need it. */
+button,
+a,
+label,
+select,
+summary,
+[role="button"],
+[role="tab"],
+[role="option"],
+[tabindex] {
+  touch-action: manipulation;
+}
+
+/* The 3D canvas consumes its own gestures (orbit, drag-to-place), so the
+ * browser must not claim any of them. */
+canvas {
+  display: block;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+img,
+picture,
+video,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+/* iOS zooms the page when focusing an input whose text is under 16px. Keeping
+ * the computed size at 16px is the only way to prevent it that does not also
+ * disable pinch-zoom. */
+input,
+textarea,
+select {
+  font-size: max(16px, var(--text-base));
+}
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  text-wrap: balance;
+}
+
+ul[role="list"],
+ol[role="list"] {
+  list-style: none;
+  padding: 0;
+}
+
+:where(dialog) {
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+:where(dialog)::backdrop {
+  background: var(--scrim);
+}

@@ -1,0 +1,67 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+dist/
+dist-ssr/
+build/
+server/dist/
+*.tsbuildinfo
+.vite/
+
+# test / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# local dev TLS certificates (see README "Running dev over HTTPS")
+# These are per-machine, self-signed, and must never be committed.
+certs/
+*.pem
+*.key
+*.crt
+!public/**/*.pem
+
+# environment / secrets
+.env
+.env.*
+!.env.example
+
+# public/textures/ is deliberately NOT ignored.
+#
+# The processed textures are committed on purpose. They are CC0, they total
+# ~400K, and scripts/fetch-textures.mjs is explicitly offline-safe on the
+# assumption that they are already present in the tree.
+#
+# Ignoring them would look tidy and quietly break every deploy that builds from
+# git rather than from this working directory - Render, Railway and GitHub
+# Actions all clone the repo, so a gitignored texture is a missing texture in
+# production. Leave them tracked.
+#
+# The download cache (node_modules/.cache/otrio-textures) is already covered by
+# the node_modules rule above.
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# deployment scratch
+.vercel
+.netlify
+.fly/

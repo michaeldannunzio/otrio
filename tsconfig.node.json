@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "noEmit": true,
+
+    "lib": ["ES2023"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "vitest.config.ts", "scripts/**/*.ts", "scripts/**/*.mjs"],
+  "//": "scripts/ holds .mjs today (fetch-textures.mjs); allowJs is off, so plain .mjs is not type-checked. That is intentional - it is a one-shot asset fetcher, not app code."
+}

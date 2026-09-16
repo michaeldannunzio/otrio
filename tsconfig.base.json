@@ -1,0 +1,53 @@
+{
+  "//": "Shared compiler options. Not a project itself - see tsconfig.json for the solution.",
+  "compilerOptions": {
+    /* Language level. ES2020 rather than ESNext: the whole point of this app is
+       that it runs on four phones at once, and ES2020 is comfortably supported by
+       every browser that can also do WebGL2 + WebRTC (Safari 14+, Chrome 80+). */
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+
+    /* Strictness. These are the settings that catch real bugs without demanding
+       whole-codebase rewrites. */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Deliberately NOT enabled - each of these is semantically invasive rather
+       than mechanically fixable, and would force real logic changes across the
+       game/net layers:
+         "noUncheckedIndexedAccess"   - board cells are indexed constantly
+         "exactOptionalPropertyTypes" - network message types use optional fields
+       Turn them on later, one module at a time, if you want them. */
+
+    /* Every file is transpiled in isolation (esbuild/swc), so the type system
+       must not rely on cross-file information at emit time. */
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    /* Path aliases. Must be kept in sync with `resolve.alias` in vite.config.ts.
+       There is one shared list in vite.config.ts that generates both - if you add
+       an alias here, add it there too or the dev server will 404. */
+    "paths": {
+      "@/*": ["./src/*"],
+      "@game/*": ["./src/game/*"],
+      "@net/*": ["./src/net/*"],
+      "@scene/*": ["./src/scene/*"],
+      "@ui/*": ["./src/ui/*"],
+      "@hooks/*": ["./src/hooks/*"],
+      "@styles/*": ["./src/styles/*"],
+      "@store/*": ["./src/store/*"],
+      "@assets/*": ["./src/assets/*"],
+      "@shared/*": ["./src/game/*"]
+    }
+  }
+}

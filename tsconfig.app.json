@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "noEmit": true,
+
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+
+    "jsx": "react-jsx",
+
+    /* vite/client   -> import.meta.env, ?url / ?raw / ?worker imports, asset modules
+       vitest/globals -> describe/it/expect without importing them (vitest runs with
+                         globals: true, so both import styles work)
+       @react-three/fiber -> ambient JSX intrinsics for <mesh>, <group>, <meshStandardMaterial>
+                         etc. R3F v8 augments the global JSX namespace on import, but
+                         listing it here guarantees it is loaded even in files that only
+                         use the intrinsics and import nothing from the package. */
+    "types": ["vite/client", "vitest/globals", "@react-three/fiber"]
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.bench.ts"]
+}

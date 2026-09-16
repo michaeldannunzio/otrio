@@ -1,0 +1,64 @@
+# Fly.io - recommended host for this project.
+#
+# Why Fly: it runs a persistent process (not a serverless function), so a
+# WebSocket connection can stay open for a whole game; it terminates TLS for
+# you, so the phones get https/wss with no certificate work; and one app
+# serves the static build and the socket from the same origin.
+#
+# Before first deploy, set your own app name and region:
+#   fly launch --no-deploy --copy-config   # or edit `app` below by hand
+#   fly deploy
+#
+# `app` MUST be changed - app names are globally unique on Fly and this one is
+# a placeholder, not a registered name.
+
+app = "otrio-CHANGEME"
+primary_region = "iad"   # pick the region nearest the players: fly platform regions
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  OTRIO_STATIC_DIR = "/app/dist"
+
+[http_service]
+  internal_port = 8080
+  force_https = true          # phones get a secure context, so WebRTC works
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+
+  # This is the setting that matters for a board game.
+  #
+  # min_machines_running = 0 lets Fly scale to zero when nobody is playing,
+  # which is the difference between "free" and "a few dollars a month". The
+  # cost is a cold start of a second or two on the first request - fine for
+  # someone opening the page, and the WebSocket connects after that.
+  #
+  # But: when the machine stops, everything in memory goes with it. If rooms
+  # are held in a plain Map in the server process, a scale-to-zero in the
+  # middle of a game loses that game. If you want games to survive an idle
+  # gap, set this to 1.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    # WebSockets are long-lived and nearly idle - they cost a file descriptor,
+    # not CPU. The default connection limits are tuned for short HTTP requests
+    # and would shed players long before the machine is actually busy.
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+  # TCP rather than HTTP, so this does not depend on the server implementing a
+  # particular health endpoint. Swap to an [[http_service.http_checks]] block
+  # against /healthz if you add one.
+  [[http_service.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+
+[[vm]]
+  # 256MB is enough for a Node process holding a few rooms in memory and
+  # serving a ~1MB static bundle. Raise if you start persisting anything.
+  size = "shared-cpu-1x"
+  memory = "256mb"

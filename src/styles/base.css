@@ -1,0 +1,118 @@
+/* ===========================================================================
+ * base.css — element defaults that every component inherits: focus, selection,
+ * scrollbars, links, and the single global handling of reduced motion.
+ * =========================================================================== */
+
+/* ───────────────────────────── focus ─────────────────────────────────────
+ * `outline` rather than `box-shadow`: it follows border-radius, never affects
+ * layout, and cannot be clipped by an ancestor's `overflow: hidden`.
+ * `:focus-visible` means a mouse click does not leave a ring behind, but
+ * keyboard and switch-control users always get one. */
+:focus-visible {
+  outline: 3px solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+
+/* Only suppress the default ring where we are definitely drawing our own. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+/* ──────────────────────────── scrollbars ────────────────────────────────
+ * Themed, and thin enough not to crowd a narrow panel. `color-scheme` (set in
+ * tokens.css) already handles this on platforms with native overlay bars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--radius-pill);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
+/* ─────────────────────────────── links ───────────────────────────────── */
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+a:active {
+  color: var(--accent-active);
+}
+
+/* ──────────────────────────── typography ─────────────────────────────── */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Numbers that change in place — scores, piece counts, clocks — must not make
+ * the layout twitch as digits swap. */
+time,
+output,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ────────────────────────── reduced motion ───────────────────────────────
+ * Handled once, here, so no component has to remember to check.
+ *
+ * Durations are collapsed rather than set to 0 because a 0ms transition never
+ * fires `transitionend`, and code that waits for it would hang.
+ *
+ * NOTE FOR THE 3D SIDE: this only governs CSS. three.js animations and
+ * react-spring are unaffected by it — read `useBreakpoint().prefersReducedMotion`
+ * (or `useReducedMotion()`) and skip camera fly-throughs, piece bounce and the
+ * win celebration accordingly. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+    --dur-slower: 1ms;
+    --dur-slowest: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

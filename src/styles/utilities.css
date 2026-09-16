@@ -1,0 +1,247 @@
+/* ===========================================================================
+ * utilities.css — small, composable classes. Prefixed `u-` so they never
+ * collide with a component class.
+ * =========================================================================== */
+
+/* ──────────────────────── accessibility ──────────────────────────────── */
+
+/* Available to screen readers, invisible on screen. Use for the label of an
+ * icon-only button, or a live region announcing whose turn it is. */
+.u-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Same, until focused — for a skip link. */
+.u-visually-hidden-focusable:not(:focus):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Meets the 44/48px minimum target without forcing the visual to be that big:
+ * the pseudo-element extends the hit area beyond a small icon. */
+.u-touch-target {
+  position: relative;
+  min-width: var(--hit-min);
+  min-height: var(--hit-min);
+}
+
+.u-touch-target-expand {
+  position: relative;
+}
+
+.u-touch-target-expand::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, var(--hit-min));
+  height: max(100%, var(--hit-min));
+  translate: -50% -50%;
+}
+
+/* ─────────────────────────── scrolling ───────────────────────────────── */
+
+/* The only correct way to make a region scroll in this app. `contain` stops a
+ * flick that reaches the end of the list from rubber-banding the page or
+ * scrolling something behind it. */
+.u-scroll {
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.u-scroll-x {
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ──────────────────────────── safe areas ─────────────────────────────── */
+
+.u-safe-top    { padding-top: var(--safe-top); }
+.u-safe-bottom { padding-bottom: var(--safe-bottom); }
+.u-safe-left   { padding-left: var(--safe-left); }
+.u-safe-right  { padding-right: var(--safe-right); }
+
+.u-safe-inset {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* Full viewport height that is correct on mobile. Never write `100vh`. */
+.u-vh       { height: var(--vh-dynamic); }
+.u-min-vh   { min-height: var(--vh-dynamic); }
+/* Use when the element must never be covered by mobile browser chrome. */
+.u-vh-safe  { height: var(--vh-small); }
+
+/* ──────────────────────────── surfaces ───────────────────────────────── */
+
+.u-surface {
+  background-color: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.u-surface-sunken {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+/* Frosted panel over the 3D board. Falls back to the flat glass colour where
+ * backdrop-filter is unsupported, and tokens.css swaps `--glass` for an opaque
+ * surface under `prefers-reduced-transparency`. */
+.u-glass {
+  background-color: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .u-glass {
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+}
+
+.u-elevation-0 { box-shadow: none; }
+.u-elevation-1 { box-shadow: var(--shadow-1); }
+.u-elevation-2 { box-shadow: var(--shadow-2); }
+.u-elevation-3 { box-shadow: var(--shadow-3); }
+.u-elevation-4 { box-shadow: var(--shadow-4); }
+.u-elevation-5 { box-shadow: var(--shadow-5); }
+
+/* ───────────────────────── player colouring ──────────────────────────────
+ * Put `u-player-2` on any container and everything inside can use
+ * `var(--player-current)` without knowing which player it is. Set it on the
+ * HUD root for the active player, or on each row of the roster.
+ *
+ * Reminder on which role to use: `--player-current` is the identity fill (a
+ * swatch, a piece), `--player-current-ui` is the only one safe for text. */
+.u-player-1 {
+  --player-current: var(--player-1);
+  --player-current-ui: var(--player-1-ui);
+  --player-current-rim: var(--player-1-rim);
+  --player-current-soft: var(--player-1-soft);
+  --player-current-on-soft: var(--player-1-on-soft);
+  --player-current-on: var(--player-1-on);
+}
+
+.u-player-2 {
+  --player-current: var(--player-2);
+  --player-current-ui: var(--player-2-ui);
+  --player-current-rim: var(--player-2-rim);
+  --player-current-soft: var(--player-2-soft);
+  --player-current-on-soft: var(--player-2-on-soft);
+  --player-current-on: var(--player-2-on);
+}
+
+.u-player-3 {
+  --player-current: var(--player-3);
+  --player-current-ui: var(--player-3-ui);
+  --player-current-rim: var(--player-3-rim);
+  --player-current-soft: var(--player-3-soft);
+  --player-current-on-soft: var(--player-3-on-soft);
+  --player-current-on: var(--player-3-on);
+}
+
+.u-player-4 {
+  --player-current: var(--player-4);
+  --player-current-ui: var(--player-4-ui);
+  --player-current-rim: var(--player-4-rim);
+  --player-current-soft: var(--player-4-soft);
+  --player-current-on-soft: var(--player-4-on-soft);
+  --player-current-on: var(--player-4-on);
+}
+
+/* A colour swatch. The border guarantees the 3:1 boundary that a pale fill
+ * (the gold player on a white panel) does not provide on its own. */
+.u-swatch {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 1em;
+  block-size: 1em;
+  border-radius: var(--radius-full);
+  background-color: var(--player-current);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--player-current-on);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+/* ─────────────────────────── text helpers ───────────────────────────────*/
+
+/* Digits that change in place must not shift the layout. */
+.u-tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.u-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.u-text-muted     { color: var(--text-muted); }
+.u-text-secondary { color: var(--text-secondary); }
+
+.u-selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.u-no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ──────────────────────────── layout bits ────────────────────────────── */
+
+.u-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-gap, var(--space-3));
+  min-height: 0;
+}
+
+.u-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cluster-gap, var(--space-2));
+  min-width: 0;
+}
+
+.u-spacer {
+  flex: 1 1 auto;
+}
+
+/* Lets the board be dragged through a decorative overlay. */
+.u-pass-through {
+  pointer-events: none;
+}
+
+.u-pass-through > * {
+  pointer-events: auto;
+}

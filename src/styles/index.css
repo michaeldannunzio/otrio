@@ -1,0 +1,15 @@
+/* ===========================================================================
+ * The app's single stylesheet entry point.
+ *
+ *   import './styles/index.css'
+ *
+ * in `main.tsx`, before anything else. Import order below is significant:
+ * tokens must be defined before the rules that consume them, and utilities
+ * come last so they win ties against component styles.
+ * =========================================================================== */
+
+@import "./tokens.css";
+@import "./reset.css";
+@import "./base.css";
+@import "./layout.css";
+@import "./utilities.css";

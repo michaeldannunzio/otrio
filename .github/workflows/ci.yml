@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# A push that lands while an earlier run is still going cancels it. Four
+# phones waiting on a deploy do not care about the previous commit's build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck / test / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci` rather than `npm install`: the lockfile is the contract, and
+      # this fails loudly if package.json and package-lock.json disagree.
+      - run: npm ci
+
+      - name: Typecheck (app + tooling + server)
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Surfaces chunk sizes in the job log. The three.js chunk is expected to
+      # be large (~600kB raw); a sudden jump in the *app* chunk is the thing
+      # worth noticing, because that is what every phone re-downloads.
+      - name: Report bundle sizes
+        if: success()
+        run: |
+          echo '### Bundle' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find dist/assets -name '*.js' -printf '%10s  %f\n' | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7

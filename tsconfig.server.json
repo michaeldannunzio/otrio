@@ -1,0 +1,42 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo",
+    "noEmit": true,
+
+    "lib": ["ES2023"],
+    "target": "ES2022",
+
+    /* nodenext, NOT bundler. The server is not bundled - `npm run server` hands
+       the .ts files straight to Node, which strips the types and runs them as
+       real ESM. Under ESM, relative imports need a real file extension, and with
+       type-stripping that extension is ".ts" (Node will not rewrite ".js" back to
+       ".ts" for you).
+
+       Choosing nodenext here means tsc reports a missing/incorrect extension at
+       typecheck time instead of the server dying with ERR_MODULE_NOT_FOUND on
+       first boot. That is the whole reason this project is configured separately.
+
+       If the server ever starts importing browser-side modules from src/ (which
+       are written bundler-style, without extensions), do NOT paper over it by
+       switching this to "bundler" - move the shared code into server-safe files
+       with explicit .ts extensions, or the runtime failure comes straight back. */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+
+    /* Node does not COMPILE the TypeScript, it only erases it. Syntax that has
+       runtime meaning - `enum`, `namespace`, parameter properties - cannot be
+       erased, and Node throws on it at load time.
+
+       This flag makes tsc reject that syntax in the server project, so the
+       failure shows up in `npm run typecheck` rather than when the container
+       starts. Use a union of string literals instead of an enum, and a plain
+       object instead of a namespace. (Requires TypeScript >= 5.8; 5.9 is
+       installed.) */
+    "erasableSyntaxOnly": true,
+
+    "types": ["node"]
+  },
+  "include": ["server/**/*.ts"]
+}

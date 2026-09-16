@@ -1,0 +1,460 @@
+/* ===========================================================================
+ * tokens.css — every design decision in the app, as CSS custom properties.
+ *
+ * MIRRORED IN `tokens.ts`. The DOM reads the variables below; three.js cannot
+ * read CSS variables, so the 3D scene reads the identical values from
+ * `tokens.ts`. Change a colour in one file and you must change it in the
+ * other — in dev, `verifyThemeSync()` diffs the two on first paint and logs a
+ * console error naming any token that drifted.
+ *
+ * HOW DARK MODE RESOLVES (this ordering is the whole trick):
+ *   1. `:root` holds the light values, so light is the no-JavaScript default.
+ *   2. `@media (prefers-color-scheme: dark) :root:not([data-theme="light"])`
+ *      applies dark for anyone whose OS says dark — including before any JS
+ *      has run, so there is no flash of light theme on a dark device.
+ *   3. `:root[data-theme="dark"]` applies dark on explicit user choice, which
+ *      beats a light OS preference.
+ *   The `:not([data-theme="light"])` in step 2 is what makes the override work
+ *   in BOTH directions. Without it, a user on a dark OS who asks for light
+ *   would keep getting dark, because the media query would still match.
+ *
+ * NAMING: kebab-case of the `tokens.ts` key. `player1Rim` -> `--player-1-rim`.
+ * =========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ───────────────────────── type ─────────────────────────────────────────
+   * Fluid: each size interpolates from its 360px-phone value to its
+   * 1440px-desktop value, then clamps. No breakpoint jumps in text size. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --text-2xs: clamp(0.6875rem, 0.6667rem + 0.0926vw, 0.75rem);      /* 11 -> 12 */
+  --text-xs: clamp(0.75rem, 0.7292rem + 0.0926vw, 0.8125rem);       /* 12 -> 13 */
+  --text-sm: clamp(0.8125rem, 0.7813rem + 0.1389vw, 0.9063rem);     /* 13 -> 14.5 */
+  --text-base: clamp(0.9375rem, 0.9167rem + 0.0926vw, 1rem);        /* 15 -> 16 */
+  --text-md: clamp(1rem, 0.9583rem + 0.1852vw, 1.125rem);           /* 16 -> 18 */
+  --text-lg: clamp(1.125rem, 1.0625rem + 0.2778vw, 1.3125rem);      /* 18 -> 21 */
+  --text-xl: clamp(1.3125rem, 1.2292rem + 0.3704vw, 1.5625rem);     /* 21 -> 25 */
+  --text-2xl: clamp(1.5625rem, 1.4375rem + 0.5556vw, 1.9375rem);    /* 25 -> 31 */
+  --text-3xl: clamp(1.875rem, 1.6667rem + 0.9259vw, 2.5rem);        /* 30 -> 40 */
+  --text-display: clamp(2.125rem, 1.6667rem + 2.037vw, 3.5rem);     /* 34 -> 56 */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  /* ──────────────────────── space & shape ─────────────────────────────────
+   * Fixed 4px scale — deliberately NOT responsive, so `--space-4` means the
+   * same thing everywhere. Density changes live in the semantic layout
+   * tokens further down (--hud-pad, --panel-w, ...), which do respond. */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
+  --radius-full: 50%;
+
+  /* Minimum interactive target (WCAG 2.5.5 / iOS HIG). Grows on touch. */
+  --hit-min: 44px;
+
+  /* ─────────────────────────── motion ─────────────────────────────────────
+   * `prefers-reduced-motion: reduce` collapses all of these to ~0 in one
+   * place (base.css), so components never have to check it themselves. */
+  --dur-instant: 0ms;
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+  --dur-slower: 400ms;
+  --dur-slowest: 650ms;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ───────────────────────── layering ─────────────────────────────────── */
+  --z-canvas: 0;
+  --z-hud: 10;
+  --z-panel: 20;
+  --z-sheet: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+  --z-tooltip: 60;
+
+  /* ──────────────────── viewport & safe areas ─────────────────────────────
+   * `100vh` is wrong on mobile Safari: it is the LARGE viewport, so a
+   * full-height layout slides under the browser chrome and the bottom of the
+   * UI is unreachable. Use these instead:
+   *   --vh-dynamic  100dvh  grows/shrinks with the toolbars. Default choice.
+   *   --vh-small    100svh  smallest viewport; use when something must NEVER
+   *                         be covered, e.g. a bottom action bar.
+   *   --vh-large    100lvh  largest; for a backdrop that may sit under chrome.
+   * Safe-area insets need `viewport-fit=cover` on the viewport meta tag —
+   * `useSafeArea()` adds it at runtime if index.html is missing it. */
+  --vh-dynamic: 100dvh;
+  --vh-small: 100svh;
+  --vh-large: 100lvh;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* Set by useSafeArea() when an on-screen keyboard covers part of the page.
+   * 0px whenever no keyboard is up. */
+  --keyboard-inset: 0px;
+
+  /* surfaces — bg is the page, surface-3 is the lowest-contrast panel */
+  --bg: #e8ecf3;
+  --surface-1: #ffffff;
+  --surface-2: #f4f7fb;
+  --surface-3: #e4eaf2;
+
+  /* borders — "strong" is guaranteed 3:1 on every surface (WCAG 1.4.11) */
+  --border-subtle: #dce2ec;
+  --border-strong: #808696;
+
+  /* text — all three clear 4.5:1 on every surface, including surface-3 */
+  --text-primary: #0f141b;
+  --text-secondary: #465264;
+  --text-muted: #5a6575;
+  --text-inverse: #ffffff;
+
+  /* accent — UI chrome only; never appears on the board beside a piece */
+  --accent: #c81b70;
+  --accent-hover: #aa005c;
+  --accent-active: #90004d;
+  --accent-contrast: #ffffff;
+  --accent-soft: #ffecf1;
+
+  /* status */
+  --success: #007a2f;
+  --success-on: #ffffff;
+  --success-soft: #def3df;
+  --success-on-soft: #007d30;
+  --warning: #915f00;
+  --warning-on: #ffffff;
+  --warning-soft: #feebd6;
+  --warning-on-soft: #956100;
+  --danger: #d1142d;
+  --danger-on: #ffffff;
+  --danger-soft: #ffe9e6;
+  --danger-on-soft: #d4192f;
+  --info: #006db2;
+  --info-on: #ffffff;
+  --info-soft: #e5eeff;
+  --info-on-soft: #0070b6;
+
+  /* player 1 — purple (north) */
+  --player-1: #7237b8;
+  --player-1-ui: #7237b8;
+  --player-1-rim: #602f99;
+  --player-1-soft: #f5e9ff;
+  --player-1-on-soft: #884bce;
+  --player-1-on: #ffffff;
+
+  /* player 2 — red (east) */
+  --player-2: #e8501e;
+  --player-2-ui: #c63100;
+  --player-2-rim: #c94b21;
+  --player-2-soft: #ffe9e2;
+  --player-2-on-soft: #c93401;
+  --player-2-on: #130400;
+
+  /* player 3 — green (south) */
+  --player-3: #a2d733;
+  --player-3-ui: #517400;
+  --player-3-rim: #6e9a0c;
+  --player-3-soft: #eaf1d4;
+  --player-3-on-soft: #537700;
+  --player-3-on: #060900;
+
+  /* player 4 — blue (west) */
+  --player-4: #1cafd2;
+  --player-4-ui: #00738c;
+  --player-4-rim: #2c98b5;
+  --player-4-soft: #d3f3ff;
+  --player-4-on-soft: #00768f;
+  --player-4-on: #00090d;
+
+  /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
+  --scene-bg: #cbd3e0;
+  --board-base: #f0f3f8;
+  --board-line: #96a5ba;
+
+  /* shadow channels — composed into --shadow-1..5 below */
+  --shadow-a: rgba(15, 20, 27, 0.06);
+  --shadow-b: rgba(15, 20, 27, 0.05);
+  --shadow-hi: transparent;
+  --scrim: rgba(15, 20, 27, 0.45);
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  /* ─────────────────── composed, theme-aware ──────────────────────────────
+   * These are declared once and resolve per theme, because the channels they
+   * reference (--shadow-a, --accent, --surface-1) are redefined below. */
+  --shadow-1: 0 1px 2px var(--shadow-a), inset 0 1px 0 var(--shadow-hi);
+  --shadow-2: 0 2px 4px var(--shadow-a), 0 4px 10px var(--shadow-b), inset 0 1px 0 var(--shadow-hi);
+  --shadow-3: 0 4px 8px var(--shadow-a), 0 12px 24px var(--shadow-b), inset 0 1px 0 var(--shadow-hi);
+  --shadow-4: 0 8px 16px var(--shadow-a), 0 24px 48px var(--shadow-b), inset 0 1px 0 var(--shadow-hi);
+  --shadow-5: 0 16px 32px var(--shadow-a), 0 40px 80px var(--shadow-b), inset 0 1px 0 var(--shadow-hi);
+
+  /* Two-tone ring: a gap in the surface colour, then the accent. Stays
+   * visible on top of any surface and in both themes. */
+  --focus-ring-color: var(--accent);
+  --focus-ring: 0 0 0 2px var(--surface-1), 0 0 0 4px var(--focus-ring-color);
+  --focus-ring-inset: inset 0 0 0 2px var(--focus-ring-color);
+
+  /* The colour of the player whose turn it is. The HUD sets this on a
+   * container (`style={{ '--player-current': theme.players[i].base }}`) and
+   * descendants pick it up, so turn-coloured chrome needs no prop drilling. */
+  --player-current: var(--accent);
+  --player-current-ui: var(--accent);
+  --player-current-rim: var(--accent);
+  --player-current-soft: var(--accent-soft);
+  --player-current-on-soft: var(--accent);
+  --player-current-on: var(--accent-contrast);
+}
+
+/* Dark, by system preference — but NOT if the user explicitly chose light.
+ * This block is also what paints correctly before any JS runs. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    /* surfaces — bg is the page, surface-3 is the lowest-contrast panel */
+    --bg: #0b0e13;
+    --surface-1: #161b24;
+    --surface-2: #1d2430;
+    --surface-3: #27303e;
+
+    /* borders — "strong" is guaranteed 3:1 on every surface (WCAG 1.4.11) */
+    --border-subtle: #2b3544;
+    --border-strong: #717887;
+
+    /* text — all three clear 4.5:1 on every surface, including surface-3 */
+    --text-primary: #edf1f8;
+    --text-secondary: #a9b4c4;
+    --text-muted: #939eae;
+    --text-inverse: #0b0e13;
+
+    /* accent — UI chrome only; never appears on the board beside a piece */
+    --accent: #fe599d;
+    --accent-hover: #ff85b1;
+    --accent-active: #ffa0c0;
+    --accent-contrast: #1b0009;
+    --accent-soft: #53323d;
+
+    /* status */
+    --success: #43aa59;
+    --success-on: #000b00;
+    --success-soft: #2a412c;
+    --success-on-soft: #71d681;
+    --warning: #ce8800;
+    --warning-on: #0e0600;
+    --warning-soft: #4a3823;
+    --warning-on-soft: #ffb238;
+    --danger: #ff615d;
+    --danger-on: #170200;
+    --danger-soft: #54322f;
+    --danger-on-soft: #ffaba3;
+    --info: #179cf8;
+    --info-on: #000816;
+    --info-soft: #293d55;
+    --info-on-soft: #97c4ff;
+
+    /* player 1 — purple (north) */
+    --player-1: #7237b8;
+    --player-1-ui: #b877ff;
+    --player-1-rim: #a46dde;
+    --player-1-soft: #473754;
+    --player-1-on-soft: #d9b0ff;
+    --player-1-on: #ffffff;
+
+    /* player 2 — red (east) */
+    --player-2: #e8501e;
+    --player-2-ui: #ff6430;
+    --player-2-rim: #ef6b3e;
+    --player-2-soft: #583529;
+    --player-2-on-soft: #ffad90;
+    --player-2-on: #130400;
+
+    /* player 3 — green (south) */
+    --player-3: #a2d733;
+    --player-3-ui: #a2d733;
+    --player-3-rim: #bbe660;
+    --player-3-soft: #384122;
+    --player-3-on-soft: #9dd22d;
+    --player-3-on: #060900;
+
+    /* player 4 — blue (west) */
+    --player-4: #1cafd2;
+    --player-4-ui: #1cafd2;
+    --player-4-rim: #5bbddb;
+    --player-4-soft: #004454;
+    --player-4-on-soft: #52d0f4;
+    --player-4-on: #00090d;
+
+    /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
+    --scene-bg: #090c11;
+    --board-base: #232b38;
+    --board-line: #4e5c72;
+
+    /* shadow channels — dark UIs read depth from a lit top edge, not just a
+     cast shadow, so --shadow-hi becomes visible here */
+    --shadow-a: rgba(0, 0, 0, 0.45);
+    --shadow-b: rgba(0, 0, 0, 0.38);
+    --shadow-hi: rgba(255, 255, 255, 0.06);
+    --scrim: rgba(0, 0, 0, 0.66);
+    --glass: rgba(22, 27, 36, 0.74);
+    --glass-border: rgba(255, 255, 255, 0.09);
+  }
+}
+
+/* Dark, by explicit user choice. Beats a light OS preference. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* surfaces — bg is the page, surface-3 is the lowest-contrast panel */
+  --bg: #0b0e13;
+  --surface-1: #161b24;
+  --surface-2: #1d2430;
+  --surface-3: #27303e;
+
+  /* borders — "strong" is guaranteed 3:1 on every surface (WCAG 1.4.11) */
+  --border-subtle: #2b3544;
+  --border-strong: #717887;
+
+  /* text — all three clear 4.5:1 on every surface, including surface-3 */
+  --text-primary: #edf1f8;
+  --text-secondary: #a9b4c4;
+  --text-muted: #939eae;
+  --text-inverse: #0b0e13;
+
+  /* accent — UI chrome only; never appears on the board beside a piece */
+  --accent: #fe599d;
+  --accent-hover: #ff85b1;
+  --accent-active: #ffa0c0;
+  --accent-contrast: #1b0009;
+  --accent-soft: #53323d;
+
+  /* status */
+  --success: #43aa59;
+  --success-on: #000b00;
+  --success-soft: #2a412c;
+  --success-on-soft: #71d681;
+  --warning: #ce8800;
+  --warning-on: #0e0600;
+  --warning-soft: #4a3823;
+  --warning-on-soft: #ffb238;
+  --danger: #ff615d;
+  --danger-on: #170200;
+  --danger-soft: #54322f;
+  --danger-on-soft: #ffaba3;
+  --info: #179cf8;
+  --info-on: #000816;
+  --info-soft: #293d55;
+  --info-on-soft: #97c4ff;
+
+  /* player 1 — purple (north) */
+  --player-1: #7237b8;
+  --player-1-ui: #b877ff;
+  --player-1-rim: #a46dde;
+  --player-1-soft: #473754;
+  --player-1-on-soft: #d9b0ff;
+  --player-1-on: #ffffff;
+
+  /* player 2 — red (east) */
+  --player-2: #e8501e;
+  --player-2-ui: #ff6430;
+  --player-2-rim: #ef6b3e;
+  --player-2-soft: #583529;
+  --player-2-on-soft: #ffad90;
+  --player-2-on: #130400;
+
+  /* player 3 — green (south) */
+  --player-3: #a2d733;
+  --player-3-ui: #a2d733;
+  --player-3-rim: #bbe660;
+  --player-3-soft: #384122;
+  --player-3-on-soft: #9dd22d;
+  --player-3-on: #060900;
+
+  /* player 4 — blue (west) */
+  --player-4: #1cafd2;
+  --player-4-ui: #1cafd2;
+  --player-4-rim: #5bbddb;
+  --player-4-soft: #004454;
+  --player-4-on-soft: #52d0f4;
+  --player-4-on: #00090d;
+
+  /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
+  --scene-bg: #090c11;
+  --board-base: #232b38;
+  --board-line: #4e5c72;
+
+  /* shadow channels — dark UIs read depth from a lit top edge, not just a
+     cast shadow, so --shadow-hi becomes visible here */
+  --shadow-a: rgba(0, 0, 0, 0.45);
+  --shadow-b: rgba(0, 0, 0, 0.38);
+  --shadow-hi: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.66);
+  --glass: rgba(22, 27, 36, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.09);
+}
+
+/* Explicit light needs no value overrides — :root already holds the light
+ * palette and the media query above is written not to match here. It only
+ * has to correct `color-scheme`, which the media query may have flipped. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* ─────────────────────────── user preferences ─────────────────────────────
+ * Raise contrast when the OS asks for it. Only the tokens sitting nearest the
+ * AA floor need to move, and pointing them at existing higher-contrast tokens
+ * keeps this correct in both themes without a second block. */
+@media (prefers-contrast: more) {
+  :root {
+    --text-muted: var(--text-secondary);
+    --border-subtle: var(--border-strong);
+    --border-strong: var(--text-secondary);
+    --focus-ring: 0 0 0 2px var(--surface-1), 0 0 0 5px var(--focus-ring-color);
+  }
+}
+
+/* Translucent panels go opaque when the OS asks for reduced transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass: var(--surface-1);
+    --glass-border: var(--border-subtle);
+  }
+}

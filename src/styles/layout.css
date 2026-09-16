@@ -1,0 +1,337 @@
+/* ===========================================================================
+ * layout.css — the responsive app shell.
+ *
+ * MIRRORS `LAYOUT`, `PHONE_LANDSCAPE_RAIL` and `SHELL_MAX` in tokens.ts. The
+ * 3D camera reads those constants to offset the board around docked panels,
+ * so the widths below must match.
+ *
+ * STRUCTURE — the canvas is full-bleed underneath, the interface is a grid
+ * on top of it:
+ *
+ *   <div class="app-canvas">   <Canvas/> — fixed, inset 0, never repositioned
+ *   <div class="app-shell">    the UI layer: capped width, centred, grid
+ *     <aside class="app-panel-start">   docked from lg up
+ *     <main  class="app-stage">         the region the board should occupy
+ *       <div class="app-hud-top">
+ *       <div class="app-hud-bottom">
+ *     <aside class="app-panel-end">     docked from xl up
+ *
+ * `.app-shell` is `pointer-events: none` so clicks fall through to the canvas;
+ * its interactive children switch it back on. That is what lets you rotate the
+ * board by dragging the empty space between HUD elements.
+ *
+ * WHAT ACTUALLY CHANGES, AND WHY:
+ *   xs  360-479  Board owns the screen. HUD is two floating overlays: a thin
+ *                player strip on top, the current player's three piece sizes
+ *                on the bottom. Everything else is a sheet. One-handed: the
+ *                only mid-game controls sit in the bottom third.
+ *   sm  480-767  Same shell, more room — player dots grow into named chips
+ *                with piece counts.
+ *   md  768-1023 Tablet portrait. Panels exist but OVERLAY the stage rather
+ *                than dock, because taking 288px from a 768px viewport would
+ *                leave the board smaller than it is on a phone.
+ *   lg  1024+    Panel docks. The board is offset instead of overlaid, so
+ *                nothing covers it, and the full player roster with piece
+ *                inventories is permanently visible.
+ *   xl  1440+    Second rail appears for the move log. Everything at once:
+ *                roster, board, history, no disclosure needed.
+ *   xxl 1920+    Wider panels and the shell caps at SHELL_MAX, centred.
+ *
+ *   phone landscape (any width, <= 500px tall) overrides all of the above:
+ *                height is the scarce axis, so the top/bottom overlays become
+ *                narrow left/right rails and the HUD padding halves.
+ * =========================================================================== */
+
+:root {
+  --shell-max: 2240px;
+  --panel-start-w: 0px;
+  --panel-end-w: 0px;
+  --hud-pad: 12px;
+  --hud-gap: 8px;
+  --control-size: 40px;
+  --sheet-radius: var(--radius-xl);
+  --sheet-max-w: 100%;
+}
+
+/* ─────────────────────────── the canvas layer ─────────────────────────── */
+
+.app-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-canvas);
+  background-color: var(--scene-bg);
+}
+
+.app-canvas > canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ──────────────────────────── the UI layer ────────────────────────────── */
+
+.app-shell {
+  position: relative;
+  z-index: var(--z-hud);
+  display: grid;
+  width: 100%;
+  max-width: var(--shell-max);
+  height: 100%;
+  margin-inline: auto;
+  grid-template-areas: "stage";
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+
+  /* Clicks fall through to the board; children opt back in. */
+  pointer-events: none;
+}
+
+.app-shell > * {
+  pointer-events: auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-stage {
+  grid-area: stage;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 0;
+
+  /* Nothing in the stage may sit under a notch, a rounded corner or the home
+   * indicator. `max()` keeps a sensible minimum when the insets are 0. */
+  padding-top: max(var(--safe-top), var(--hud-pad));
+  padding-bottom: max(var(--safe-bottom), var(--hud-pad));
+  padding-left: max(var(--safe-left), var(--hud-pad));
+  padding-right: max(var(--safe-right), var(--hud-pad));
+
+  /* The stage is a pass-through region — only its HUD children are clickable,
+   * so the board stays draggable in the gaps. */
+  pointer-events: none;
+}
+
+.app-stage > * {
+  pointer-events: auto;
+}
+
+.app-hud-top,
+.app-hud-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--hud-gap);
+  width: 100%;
+}
+
+.app-hud-top {
+  justify-content: space-between;
+}
+
+.app-hud-bottom {
+  justify-content: center;
+
+  /* Lift clear of the on-screen keyboard when one is open (useSafeArea keeps
+   * --keyboard-inset current; it is 0px the rest of the time). */
+  margin-bottom: var(--keyboard-inset);
+}
+
+/* Docked panels. Hidden until their breakpoint — below it, render the same
+ * content inside `.app-sheet` instead. */
+.app-panel-start,
+.app-panel-end {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--surface-1);
+  border-color: var(--border-subtle);
+  border-style: solid;
+  border-width: 0;
+}
+
+.app-panel-start {
+  grid-area: start;
+  border-inline-end-width: 1px;
+  padding-top: max(var(--safe-top), var(--hud-pad));
+  padding-bottom: max(var(--safe-bottom), var(--hud-pad));
+  padding-inline-start: max(var(--safe-left), var(--hud-pad));
+  padding-inline-end: var(--hud-pad);
+}
+
+.app-panel-end {
+  grid-area: end;
+  border-inline-start-width: 1px;
+  padding-top: max(var(--safe-top), var(--hud-pad));
+  padding-bottom: max(var(--safe-bottom), var(--hud-pad));
+  padding-inline-end: max(var(--safe-right), var(--hud-pad));
+  padding-inline-start: var(--hud-pad);
+}
+
+/* ───────────────────────────── breakpoints ───────────────────────────── */
+
+/* sm — 480px: room for names beside the player dots. */
+@media (min-width: 480px) {
+  :root {
+    --hud-pad: 14px;
+    --hud-gap: 10px;
+    --control-size: 42px;
+    --sheet-max-w: 460px;
+  }
+}
+
+/* md — 768px: tablet portrait. Panels overlay, they do not dock: stealing
+ * 288px from 768px would leave the board smaller than on a phone. */
+@media (min-width: 768px) {
+  :root {
+    --hud-pad: 16px;
+    --hud-gap: 12px;
+    --control-size: 44px;
+    --sheet-radius: var(--radius-lg);
+    --sheet-max-w: 560px;
+  }
+}
+
+/* lg — 1024px: the panel docks and the board is offset rather than covered. */
+@media (min-width: 1024px) {
+  :root {
+    --hud-pad: 18px;
+    --panel-start-w: 296px;
+  }
+
+  .app-shell {
+    grid-template-areas: "start stage";
+    grid-template-columns: var(--panel-start-w) 1fr;
+  }
+
+  .app-panel-start {
+    display: flex;
+  }
+}
+
+/* xl — 1440px: the move log gets its own rail. Everything visible at once. */
+@media (min-width: 1440px) {
+  :root {
+    --hud-pad: 20px;
+    --hud-gap: 14px;
+    --control-size: 46px;
+    --panel-start-w: 320px;
+    --panel-end-w: 300px;
+    --sheet-max-w: 640px;
+  }
+
+  .app-shell {
+    grid-template-areas: "start stage end";
+    grid-template-columns: var(--panel-start-w) 1fr var(--panel-end-w);
+  }
+
+  .app-panel-end {
+    display: flex;
+  }
+}
+
+/* xxl — 1920px and up, including ultrawide. */
+@media (min-width: 1920px) {
+  :root {
+    --hud-pad: 24px;
+    --hud-gap: 16px;
+    --control-size: 48px;
+    --panel-start-w: 344px;
+    --panel-end-w: 320px;
+  }
+}
+
+/* ─────────────────────── orientation & pointer ────────────────────────── */
+
+/* Phone held sideways. Not a width problem — a HEIGHT problem. A top strip
+ * plus a bottom bar would take ~40% of a 380px-tall viewport, so they become
+ * narrow rails on the left and right, where the thumbs already are.
+ * In landscape the notch moves to a side, which is why the rails pad with
+ * --safe-left / --safe-right. */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root {
+    --hud-pad: 8px;
+    --hud-gap: 6px;
+    --panel-start-w: 72px;
+    --panel-end-w: 72px;
+    --sheet-radius: var(--radius-md);
+  }
+
+  .app-shell {
+    grid-template-areas: "start stage end";
+    grid-template-columns: var(--panel-start-w) 1fr var(--panel-end-w);
+  }
+
+  .app-panel-start,
+  .app-panel-end {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    border-width: 0;
+  }
+
+  .app-stage {
+    /* The rails already hold the safe-area padding on the sides. */
+    padding-inline: var(--hud-pad);
+    padding-block: max(var(--safe-top), var(--hud-pad)) max(var(--safe-bottom), var(--hud-pad));
+  }
+
+  /* Overlays stack vertically inside their rail. */
+  .app-hud-top,
+  .app-hud-bottom {
+    flex-direction: column;
+  }
+}
+
+/* Fingers are not mice: grow every target to the 48px touch floor. */
+@media (pointer: coarse) {
+  :root {
+    --hit-min: 48px;
+    --control-size: max(48px, var(--control-size));
+  }
+}
+
+/* 21:9 and wider — cap the interface and centre it. The canvas underneath
+ * stays full-bleed, so the scene still fills the display. */
+@media (min-aspect-ratio: 2 / 1) {
+  .app-shell {
+    max-width: min(var(--shell-max), 150vh);
+  }
+}
+
+/* ───────────────────────────── sheets ────────────────────────────────────
+ * A bottom sheet on a phone, a centred dialog from md up. Same markup. */
+.app-sheet {
+  position: fixed;
+  z-index: var(--z-sheet);
+  inset-inline: 0;
+  bottom: 0;
+  max-height: calc(var(--vh-dynamic) - var(--safe-top) - var(--space-8));
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  background-color: var(--surface-1);
+  border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+  box-shadow: var(--shadow-4);
+  padding: var(--space-5);
+  padding-bottom: max(var(--safe-bottom), var(--space-5));
+  padding-inline: max(var(--safe-left), var(--space-5)) max(var(--safe-right), var(--space-5));
+}
+
+@media (min-width: 768px) {
+  .app-sheet {
+    inset: 50% auto auto 50%;
+    translate: -50% -50%;
+    width: min(var(--sheet-max-w), calc(100vw - var(--space-12)));
+    max-height: calc(var(--vh-dynamic) - var(--space-16));
+    border-radius: var(--sheet-radius);
+    padding-bottom: var(--space-5);
+  }
+}
+
+.app-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  background-color: var(--scrim);
+}

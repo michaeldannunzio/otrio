@@ -1,0 +1,16 @@
+{
+  "//": [
+    "Solution file. It contains no sources of its own - it only references the",
+    "three real projects, which target three different runtimes:",
+    "  tsconfig.app.json     browser  (React + react-three-fiber, DOM lib)",
+    "  tsconfig.node.json    node     (vite.config.ts, scripts/)",
+    "  tsconfig.server.json  node     (server/, the WebSocket host)",
+    "Run `npm run typecheck` (tsc -b --noEmit) to check all three."
+  ],
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.server.json" }
+  ]
+}

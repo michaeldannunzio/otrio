@@ -1,0 +1,446 @@
+# Otrio
+
+Otrio in 3D, in a browser, for two to four players on whatever phones are in the
+room.
+
+Otrio is a small, sharp abstract game: each player has three rings of each of
+three sizes, and there are three different ways to make a line. Full rules,
+including the ones people usually get wrong, are in [`docs/RULES.md`](docs/RULES.md).
+
+Everyone opens the same URL on their own phone and plays on their own screen.
+There is no app to install and no account to make.
+
+---
+
+## Quick start
+
+```sh
+npm install
+npm run dev
+```
+
+Open the URL Vite prints. That gets you the game on the machine you are sitting
+at; the next section is the part you actually want.
+
+To play against yourself while developing, open several tabs and use the
+`broadcast:otrio` signalling mode (see [Transports](#transports)) — it connects
+tabs to each other with no server running at all.
+
+---
+
+## Getting four phones into a game
+
+Two commands, two terminals:
+
+```sh
+npm run server     # the WebSocket host
+npm run dev        # the app, bound to 0.0.0.0
+```
+
+Vite prints two URLs. The one you want is the **Network** one:
+
+```
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.1.42:5173/     <- this one
+```
+
+Everyone joins the same Wi-Fi, types that URL, and one person creates a room and
+reads out the room code.
+
+The dev server is configured with `host: true` precisely so that Network URL
+exists — by default Vite binds to localhost only and phones cannot see it at all.
+The port is pinned with `strictPort`, so if 5173 is busy the server fails
+instead of quietly moving to 5174 and invalidating the URL you just read aloud.
+
+You do not need to run the Node server separately if you are only using the
+WebRTC transport between tabs — but for four real phones you do.
+
+### If the phones cannot reach it
+
+- **Same network?** Phones love silently staying on cellular. Check Wi-Fi is on
+  and that it is the same SSID — many routers have separate 2.4GHz and 5GHz
+  networks that do not talk to each other, and "guest" networks almost always
+  isolate clients from one another on purpose.
+- **Firewall.** On Fedora: `sudo firewall-cmd --add-port=5173/tcp --add-port=8787/tcp`
+  (add `--permanent` to keep it across reboots). This is the most common cause.
+- **Getting the URL onto four phones** is tedious to type. Generate a QR code
+  for it — most terminals can, e.g. `qrencode -t ANSIUTF8 http://192.168.1.42:5173`.
+
+---
+
+## Running the dev server over HTTPS
+
+**This matters more than it sounds like it does.**
+
+`http://localhost` is treated by browsers as a *secure context*. `http://192.168.1.42`
+is not. A large set of web APIs is only exposed in secure contexts, and
+`RTCPeerConnection` is one of them.
+
+The practical consequence: **the WebRTC transport cannot work on phones over
+plain HTTP on your LAN.** Not "works slowly" — `RTCPeerConnection` is simply not
+defined, and the code fails where it tries to construct one. The WebSocket
+transport is unaffected and works fine over plain HTTP.
+
+So if you are testing the P2P path on real phones, you need HTTPS. Three ways,
+in increasing order of how well they work:
+
+### 1. mkcert — recommended for LAN testing
+
+[`mkcert`](https://github.com/FiloSottile/mkcert) makes a local certificate
+authority and issues certificates from it.
+
+```sh
+mkcert -install
+mkdir -p certs
+mkcert -key-file certs/dev-key.pem -cert-file certs/dev-cert.pem \
+       localhost 127.0.0.1 ::1 192.168.1.42   # <- your actual LAN IP
+npm run dev
+```
+
+`vite.config.ts` picks up `certs/dev-cert.pem` + `certs/dev-key.pem`
+automatically and switches to HTTPS. `certs/` is gitignored.
+
+The catch: each phone must trust your local CA, or it will show a full-page
+certificate warning. Copy `"$(mkcert -CAROOT)/rootCA.pem"` to the phone and
+install it — on iOS that is a two-step dance (install the profile in Settings →
+General → VPN & Device Management, **then** separately enable it under Settings →
+General → About → Certificate Trust Settings). Android puts it under Settings →
+Security → Encryption & credentials → Install a certificate → CA certificate.
+
+Worth doing once. Tedious to do for four borrowed phones.
+
+### 2. A tunnel — recommended for other people's phones
+
+```sh
+npm run dev
+cloudflared tunnel --url http://localhost:5173
+```
+
+You get a public `https://something.trycloudflare.com` URL with a certificate
+every phone already trusts, and it works from outside your network too. Nothing
+to install on anyone's device.
+
+`vite.config.ts` already allowlists `*.trycloudflare.com`, `*.ngrok-free.app`,
+`*.ngrok.io` and `*.loca.lt` — without that, Vite 6's DNS-rebinding protection
+rejects the tunnel's `Host` header and serves "Blocked request" instead of the
+game. Add your own domain to `server.allowedHosts` if you use a different tunnel.
+
+The catch: every asset round-trips through the tunnel, so it is slower than LAN,
+and the 3D scene is not a small payload.
+
+### 3. Just deploy it
+
+Honestly the least friction for a game night. Real certificate, real URL, works
+from anywhere, nothing to install. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+### Forcing the issue
+
+- `VITE_DEV_HTTPS=1 npm run dev` — fail loudly if certs are missing rather than
+  silently starting on HTTP.
+- `VITE_DEV_HTTPS=0 npm run dev` — force plain HTTP even if certs exist.
+
+---
+
+## Transports
+
+The game can move data between players two different ways. Both implement the
+same `Transport` interface in [`src/net/transport.ts`](src/net/transport.ts), so
+the rest of the app does not know or care which is in use.
+
+| | `hosted` | `p2p` |
+|---|---|---|
+| How | Node WebSocket server relays every move | WebRTC data channels, phone to phone |
+| Server's role | Authoritative relay, for the whole game | Introduces peers, then goes idle |
+| Secure context needed | No | **Yes** — see above |
+| Works across networks | Yes | Usually; needs TURN in bad NAT cases |
+| Latency in one room | One hop to the server and back | Direct |
+
+Set the backend with `VITE_TRANSPORT` in `.env.local` (copy `.env.example`):
+
+```sh
+VITE_TRANSPORT=hosted   # or p2p
+```
+
+`TransportKind` is designed to be switchable at runtime — from a URL parameter
+or a settings toggle — so the two can be compared without a rebuild. Check the
+app's setup code for whether a `?transport=` parameter is wired up, since that
+is owned outside this config.
+
+### Signalling, and the no-server mode
+
+The `p2p` transport needs a signalling channel to introduce peers.
+`createSignaling()` accepts:
+
+- `wss://…` or `ws://…` — a real signalling server (the one in `server/`)
+- `broadcast:otrio` — **no server at all.** Uses `BroadcastChannel` to signal
+  between tabs of the same browser. Open four tabs, and you have four players
+  on one machine. This is by far the quickest way to exercise the P2P code path
+  and it needs neither HTTPS nor a running server.
+
+Set it with `VITE_SIGNALING_URL`.
+
+STUN/TURN configuration lives in `VITE_STUN_URLS` / `VITE_TURN_URLS` — see
+`.env.example` and [`docs/WEBRTC.md`](docs/WEBRTC.md).
+
+---
+
+## Project layout
+
+```
+src/game/      Rules, board representation, win detection. Pure logic, no
+               three.js and no DOM — which is what makes it testable.
+src/net/       Transport interface, wire protocol, WebSocket + WebRTC backends.
+src/scene/     The 3D board: geometry, materials, animation.
+src/ui/        2D interface layered over the canvas.
+src/store/     Shared client state.
+server/        The Node WebSocket host. Run directly as TypeScript.
+public/textures/  CC0 texture payload. Committed (~400K), not fetched at
+               install time. `npm run textures` regenerates it.
+docs/          Rules, WebRTC notes, deployment, texture licensing.
+```
+
+### Scripts
+
+| | |
+|---|---|
+| `npm run dev` | Dev server, bound to the LAN |
+| `npm run build` | Typecheck all three projects, then bundle to `dist/` |
+| `npm run preview` | Serve the real production build, also on the LAN |
+| `npm run typecheck` | `tsc -b --noEmit` across app, tooling and server |
+| `npm test` | Vitest, node environment |
+| `npm run server` | The WebSocket host |
+| `npm run textures` | Re-download / re-process the textures (idempotent, offline-safe) |
+
+`npm run preview` is the honest way to test on phones: the dev server serves
+thousands of unbundled ES modules and behaves nothing like the deployed artifact
+over mobile Wi-Fi.
+
+---
+
+## Build configuration notes
+
+A few decisions in `vite.config.ts` and the tsconfigs that are worth knowing
+before you change them.
+
+**Three TypeScript projects, not one.** `tsconfig.app.json` (browser, DOM lib),
+`tsconfig.node.json` (Vite config and scripts) and `tsconfig.server.json`
+(the Node host) target genuinely different runtimes, and `tsconfig.json` is a
+solution file that just references all three.
+
+The server project uses `moduleResolution: "nodenext"` on purpose. `npm run server`
+hands `.ts` files straight to Node, which strips the types and runs them as real
+ESM — and under ESM, relative imports need a real file extension (`./rooms.ts`,
+not `./rooms`). nodenext makes `tsc` report a missing extension at typecheck
+time instead of the server dying with `ERR_MODULE_NOT_FOUND` on first boot.
+
+**Chunking.** three.js gets its own chunk, `@react-three/*` and friends get
+another, React a third. three.js is ~690kB raw / 177kB gzipped and only changes
+when the dependency is bumped, so isolating it means game-code edits do not
+force every phone to re-download the engine.
+
+The order of the tests in `manualChunks` is load-bearing. `scheduler` and
+`react-reconciler` look like r3f dependencies — r3f does pull them in — but
+`react-dom` depends on `scheduler` too. Grouping them with r3f makes the react
+chunk import the r3f chunk while the r3f chunk imports the react chunk, and
+Rollup reports `Circular chunk: r3f -> react -> r3f`. The React branch
+therefore has to be tested *first*. (This was caught by building a throwaway
+three + drei page against this config, not in theory.)
+
+**`base` is `'/'`, not `'./'`, and that matters for textures.**
+`src/scene/textures.ts` builds its URLs at runtime from
+`import.meta.env.BASE_URL` + `textures/<tier>/<file>`. With a relative base
+those resolve against the current path, so the moment the app is served from a
+nested URL every texture 404s. The hosts below rewrite unknown paths to
+`index.html`, which makes nested URLs normal rather than exotic.
+
+**Textures are never inlined.** `build.assetsInlineLimit` explicitly rejects
+image, model and texture extensions. Base64 in a JS chunk costs ~33% extra
+bytes, blocks the parser, and defeats HTTP caching.
+
+**Strictness.** `strict`, plus `noUnusedLocals`, `noUnusedParameters`,
+`noImplicitReturns`, `noImplicitOverride`, `noFallthroughCasesInSwitch`.
+Deliberately *not* enabled: `noUncheckedIndexedAccess` (board cells are indexed
+constantly) and `exactOptionalPropertyTypes` (the protocol types lean on
+optional fields). Both are semantically invasive rather than mechanically
+fixable; turn them on per-module later if you want them.
+
+**Path aliases** (`@game/*`, `@net/*`, `@scene/*`, …) are defined in *two*
+places that must agree: `resolve.alias` in `vite.config.ts` and `paths` in
+`tsconfig.base.json`. TypeScript cannot read the Vite config, so adding an alias
+to only one of them produces a project that typechecks and 404s, or vice versa.
+
+---
+
+## Deployment
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Short version: one container
+serves both the static bundle and the WebSocket endpoint, so you get one
+hostname and one certificate. `fly.toml`, `render.yaml` and `railway.toml` are
+all in the repo.
+
+Vercel is a poor fit for the WebSocket half — its serverless functions are not
+designed to hold a long-lived connection. That is covered honestly in the
+deployment doc rather than papered over.
+
+No credentials are committed anywhere. You supply your own.
+
+---
+
+## Verification status
+
+Being straight about what has actually been observed working, because this was
+built by several agents in parallel and "it compiles" is not the same as
+"it runs".
+
+Each claim below says *when* it was true. That matters more than usual here:
+the repo has **no commits yet** (`git rev-list --count HEAD` is 0), so there is
+no revision to pin these to, and the tree moved under this section while it was
+being written.
+
+> ### Current state: the tree does not typecheck
+>
+> As of **2026-09-16 00:24**, `npm run typecheck` reports **14 errors** and
+> `npm run build` therefore fails at the `tsc -b` step.
+>
+> This is a known, deliberate midpoint, not a regression. The wire protocol is
+> being changed so the game can follow the official Otrio rules exactly: the old
+> `GameSnapshot` could not express the official 2-player game, in which each
+> player controls **two** colours and must alternate between them every turn.
+> The change makes `PlayerColor = 0|1|2|3` first-class on the wire and severs
+> colour from seat — `SEAT_COLORS` and `PlayerView.color` are deleted,
+> `CellState` slots hold a `PlayerColor` rather than a `Seat`, `reserves`
+> becomes length-4 indexed by colour, `GameSnapshot` gains `colorsInPlay` /
+> `turnColors` / `winnerColor`, and `WinningLine` gains `color`.
+>
+> The 14 errors are that change half-applied across `server/src/rooms.ts` (5),
+> `src/net/rtcTransport.ts` (4), `src/game/adapter.ts` (4) and
+> `src/ui/components/BoardStage.tsx` (1). They resolve when both sides land.
+
+**Verified by actually running it — green as of 2026-09-16 00:15, before the
+protocol change began:**
+
+- **`npm run build` succeeded.** Typecheck of all three projects plus the
+  production bundle, exit 0, ~2.7s.
+- **The test suite passed.** 172 tests across 6 files (`rules`, `engine`,
+  `match`, `simulation`, `api`, `adapter`), 1.7s, all green. The test suite is
+  the part least disturbed by the protocol change, since it exercises the
+  engine rather than the wire format.
+- **The texture payload ships.** All 17 files plus `manifest.json` land in
+  `dist/textures/` with the `hd`/`sd` split intact.
+- **The chunking works on the real application** (verified 2026-09-16 00:20,
+  bundle-only build, 101 modules):
+
+  | chunk | raw | gzipped |
+  |---|---|---|
+  | `three` | 688.60 kB | 176.80 kB |
+  | `react` | 238.02 kB | 75.02 kB |
+  | app entry | 76.46 kB | 25.21 kB |
+  | `r3f` | 34.47 kB | 13.25 kB |
+  | `Scene` (lazy) | 22.78 kB | 9.30 kB |
+  | `vendor` | 3.22 kB | 1.25 kB |
+  | CSS | 44.76 kB | 8.80 kB |
+
+  three.js is isolated and cacheable, and the 3D scene splits into its own lazy
+  chunk automatically. This holds independently of the protocol change above,
+  which touches types rather than the module graph.
+
+  An earlier revision of the chunk rules produced
+  `Circular chunk: r3f -> react -> r3f`, caught by building a throwaway
+  three + drei page against this config before pointing it at the app. Fixed
+  and re-verified — see the note on ordering in "Build configuration notes".
+- **`npm run typecheck` runs all three projects** and reports real errors
+  (2s, uncached).
+- **The server starts.** `node server/src/index.ts` boots on Node 24 with no
+  flags — type stripping is on by default — binds, and serves.
+- **`server/` can import `src/net/protocol.ts`** at runtime; that file is
+  self-contained, and the import carries an explicit `.ts` extension.
+- **The dev server is reachable over the LAN.** It starts in ~70ms, binds to
+  all interfaces (`*:5173`), prints the Network URLs, and answers HTTP 200 on
+  the LAN address as well as on localhost. So the "type this URL into four
+  phones" flow above is real — what has *not* been done is typing it into an
+  actual phone.
+- **`npm run preview` serves the production build over the LAN**, and
+  `/textures/hd/board_albedo.webp` returns 200 from it — so the built artifact
+  and its asset paths are correct end to end.
+- **The deployment configs are syntactically valid.** `fly.toml`,
+  `railway.toml` (TOML), `render.yaml` and the CI workflow (YAML) all parse.
+  That is *all* that has been checked about them — see below.
+
+**Known not to work yet:**
+
+- **`main.tsx` still resolves the network transport at runtime, so it will not
+  be bundled.** Half of a larger problem; the other half is now fixed, and the
+  contrast is the useful part.
+
+  Both `BoardStage.tsx` and `main.tsx` originally loaded their main dependency
+  through a *variable* specifier marked `@vite-ignore`, so that each half of
+  the app would compile before the other had landed:
+
+  ```ts
+  const mod = await import(/* @vite-ignore */ candidate.module);
+  ```
+
+  `@vite-ignore` tells the bundler not to follow the import. It emits no chunk
+  and never rewrites the path, so in production the specifier resolves against
+  the emitted chunk's URL (`/assets/…`), 404s, and the surrounding `catch`
+  swallows it. You get the fallback board and a null transport, silently, from
+  a build that exited 0. The measured proof was a production build with
+  **71 modules and no `three` chunk at all**, for a 3D game.
+
+  `BoardStage.tsx` has since collapsed to a literal
+  `lazy(() => import('../../scene/Scene'))`, and the chunk table above is what
+  that bought: three.js bundled, Scene split out on its own. `main.tsx` has not,
+  because the module it probes for does not exist yet — the transport entry
+  point is landing at **`src/net/index.ts`**, and `main.tsx` should import it
+  literally once it does.
+
+  The general rule, since this cost a while to diagnose: a specifier Vite cannot
+  read statically is a dependency Vite will not ship.
+
+- **`src/game/adapter.ts` has one import Node cannot resolve.** Line 68 imports
+  `'../net/protocol'` without an extension. Under Node's ESM loader that is
+  `ERR_MODULE_NOT_FOUND`, and `server/` now imports this file, so it matters.
+
+  This is a single missed specifier rather than a systemic gap: the other 57
+  relative imports across `src/game/*.ts` all carry `.ts`, as does
+  `server/src/rules.ts`'s `'../../src/net/protocol.ts'`. The fix is to match
+  them. `tsc` reports it as `TS2835` because `tsconfig.server.json` uses
+  `nodenext` specifically to catch this class of error at typecheck time rather
+  than at container start.
+
+**Not verified, because it needs hardware and people:**
+
+- Four real phones connected to one game. Nobody has done this.
+- WebRTC between physical devices, over any network. The secure-context
+  reasoning above is from the specification and is solid, but the code path has
+  not been exercised phone-to-phone.
+- TURN relay behaviour. No TURN server has been configured or tested.
+- Any deployment. The Fly/Render/Railway configs are written against each
+  platform's documented behaviour; none has been deployed, no account exists,
+  and no credentials were created. Expect to adjust the app name and region at
+  minimum.
+- Rendering performance on mobile GPUs.
+- Whether the textures actually look right on the board. The files are present
+  and committed; nobody has seen them applied to the 3D scene.
+- **The CI workflow has never run.** There are no commits in this repository,
+  so nothing has ever been pushed and GitHub Actions has never executed
+  `.github/workflows/ci.yml`. Its steps are the same commands verified locally,
+  but the workflow file itself is unexercised.
+- **The container has never been built.** Docker is not installed on the
+  machine this was assembled on, so `Dockerfile` has not been run even once.
+
+**Known rough edges in the toolchain:**
+
+- **`vitest@2.1.x` depends on `vite@^5`, but this app uses `vite@6`.** npm has
+  installed a second copy of Vite (5.4.21) nested under vitest. Tests run, but
+  they run through a different Vite than the app builds with. This is why the
+  test config lives in its own `vitest.config.ts` rather than a `test` key in
+  `vite.config.ts` — with both in one file, the two Vite copies' types are
+  structurally incompatible and `tsc` rejects the config outright. The real fix
+  is `vitest@^3`, which is a `package.json` change.
+- **`ws` is in `devDependencies`**, but the server needs it at runtime. The
+  Dockerfile works around this by copying `node_modules/ws` directly (it is
+  zero-dependency and 196K). It should move to `dependencies`.
+- **`@types/node` is not declared in `package.json`**; it resolves only because
+  something else pulled it in transitively. It should be an explicit
+  `devDependency`, since two of the three tsconfigs name it in `types`.

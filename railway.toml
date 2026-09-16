@@ -1,0 +1,29 @@
+# Railway.
+#
+# Railway autodetects the Dockerfile, so this file only pins the parts worth
+# being explicit about. Deploy with:
+#
+#   railway init
+#   railway up
+#
+# Then in the Railway dashboard: Settings > Networking > Generate Domain.
+# That gives you an https:// hostname with TLS terminated at the edge, and
+# WebSocket upgrades are proxied through without extra configuration.
+#
+# Railway does not spin services down to zero on the Hobby plan, so a game
+# left open over a coffee break survives - unlike Render free. It bills by
+# resource-minute instead, so an idle Node process costs a small trickle
+# rather than nothing.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node server/src/index.ts"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+# One instance. Two would split players across processes that cannot see each
+# other's rooms - the server keeps room state in memory, so horizontal scaling
+# needs a shared store (Redis) before it is safe.
+numReplicas = 1

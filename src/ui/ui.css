@@ -1,0 +1,1597 @@
+/* ===========================================================================
+ * ui.css — styles for the 2D interface.
+ *
+ * Imported after `src/styles/index.css`, which owns tokens, the reset, base
+ * element styles, the app shell and the `u-` utilities. Nothing here defines a
+ * colour, a spacing step, a radius, a shadow, a duration or a breakpoint: every
+ * value is a token from that layer. If you find yourself typing a hex code or a
+ * pixel gap, the token is missing and belongs there, not here.
+ *
+ * Conventions:
+ *   - `o-` prefix for components, so they never collide with `u-` or `app-`.
+ *   - Player colour comes from `--player-current*`, bound by a `u-player-N`
+ *     class on an ancestor. No component names a specific player.
+ *   - Only `--player-current-ui` and `--player-current-on*` are used for text.
+ *     `--player-current` is an identity fill and is not contrast-guaranteed.
+ *   - The four raw breakpoints (480 / 768 / 1024 / 1440) mirror `BREAKPOINTS`
+ *     in tokens.ts. CSS custom properties cannot be used inside a media query,
+ *     so the numbers are repeated rather than referenced; they are the only
+ *     literals in this file.
+ * =========================================================================== */
+
+/* ─────────────────────────────── shell ────────────────────────────────── */
+
+.o-app {
+  display: flex;
+  flex-direction: column;
+  min-height: var(--vh-dynamic);
+  background-color: var(--bg);
+  color: var(--text-primary);
+}
+
+.o-app__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hidden until focused, then a real button in the top-left. */
+.o-skip {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  translate: 0 -200%;
+}
+
+.o-skip:focus {
+  translate: 0 0;
+}
+
+/* Scrollable, centred column for the non-game screens. */
+.o-screen {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  padding: var(--space-4);
+  padding-top: max(var(--safe-top), var(--space-4));
+  padding-bottom: max(var(--safe-bottom), var(--space-6));
+  padding-inline: max(var(--safe-left), var(--space-4)) max(var(--safe-right), var(--space-4));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ────────────────────────────── buttons ───────────────────────────────── */
+
+.o-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  /* The 44/48px floor lives here so no variant can opt out of it. */
+  min-height: var(--hit-min);
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    translate var(--dur-fast) var(--ease-standard);
+}
+
+.o-btn--lg {
+  min-height: calc(var(--hit-min) + var(--space-3));
+  font-size: var(--text-md);
+}
+
+.o-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.o-btn--primary {
+  background-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.o-btn--secondary {
+  background-color: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.o-btn--ghost {
+  background-color: transparent;
+  color: var(--text-secondary);
+}
+
+.o-btn--danger {
+  background-color: var(--danger);
+  color: var(--danger-on);
+}
+
+.o-btn:hover:not(:disabled) {
+  background-color: var(--surface-3);
+}
+
+.o-btn--primary:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.o-btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.o-btn:active:not(:disabled) {
+  translate: 0 1px;
+}
+
+.o-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.o-btn__label {
+  min-width: 0;
+}
+
+.o-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: var(--control-size);
+  block-size: var(--control-size);
+  min-width: var(--hit-min);
+  min-height: var(--hit-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background-color: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+
+.o-iconbtn:hover {
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.o-linkbtn {
+  padding: var(--space-2) 0;
+  min-height: var(--hit-min);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+/* Stroked icons everywhere: one rule rather than per-path attributes. */
+.o-icon {
+  inline-size: 1.25em;
+  block-size: 1.25em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ────────────────────────────── spinner ───────────────────────────────── */
+
+.o-spinner {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.o-spinner__dot {
+  inline-size: 5px;
+  block-size: 5px;
+  border-radius: var(--radius-full);
+  background-color: currentColor;
+  animation: o-pulse 1s var(--ease-standard) infinite;
+}
+
+.o-spinner__dot:nth-child(2) { animation-delay: 0.12s; }
+.o-spinner__dot:nth-child(3) { animation-delay: 0.24s; }
+
+@keyframes o-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* ─────────────────────────────── cards ────────────────────────────────── */
+
+.o-card {
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ─────────────────────────────── fields ───────────────────────────────── */
+
+.o-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.o-field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.o-field__input {
+  min-height: var(--hit-min);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  /* 16px minimum: anything smaller makes iOS Safari zoom the page on focus,
+   * which on a shared game screen is deeply disorienting. */
+  font-size: max(1rem, var(--text-base));
+}
+
+.o-field--error .o-field__input {
+  border-color: var(--danger);
+}
+
+.o-field__hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.o-field__error,
+.o-inlineError {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--danger-on-soft);
+}
+
+.o-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--hit-min);
+  font-size: var(--text-base);
+}
+
+.o-check input {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  accent-color: var(--accent);
+}
+
+/* ─────────────────────────────── switch ───────────────────────────────── */
+
+.o-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--hit-min);
+}
+
+.o-switch__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.o-switch__label {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+.o-switch__desc {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* The input stays a real checkbox and stays in the layout -- it is just
+ * transparent and stretched over the track, so the whole switch is the target
+ * and focus-visible still lands on a focusable element. */
+.o-switch__input {
+  position: absolute;
+  inset-inline-end: 0;
+  inline-size: 3.25rem;
+  block-size: var(--hit-min);
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.o-switch__track {
+  flex: none;
+  inline-size: 3.25rem;
+  block-size: 1.875rem;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.o-switch__thumb {
+  display: block;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  border-radius: var(--radius-full);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-1);
+  transition: translate var(--dur-base) var(--ease-standard);
+}
+
+.o-switch__input:checked ~ .o-switch__track {
+  background-color: var(--accent);
+}
+
+.o-switch__input:checked ~ .o-switch__track .o-switch__thumb {
+  translate: 1.375rem 0;
+}
+
+.o-switch__input:focus-visible ~ .o-switch__track {
+  box-shadow: var(--focus-ring);
+}
+
+/* ────────────────────────── segmented control ─────────────────────────── */
+
+.o-seg {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.o-seg__legend {
+  padding: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.o-seg__options {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.o-seg__option {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: calc(var(--hit-min) + var(--space-2));
+  padding: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  cursor: pointer;
+  text-align: center;
+}
+
+.o-seg__option.is-selected {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  /* A second, non-colour cue: selection must not rest on hue alone. */
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.o-seg__option.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.o-seg__option:has(:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.o-seg__optionLabel {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.o-seg__optionDetail,
+.o-seg__hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.o-seg__hint {
+  margin: var(--space-2) 0 0;
+}
+
+/* ─────────────────────────────── pills ───────────────────────────────── */
+
+.o-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-3);
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.o-pill--ok     { background-color: var(--success-soft); color: var(--success-on-soft); }
+.o-pill--warn   { background-color: var(--warning-soft); color: var(--warning-on-soft); }
+.o-pill--bad    { background-color: var(--danger-soft);  color: var(--danger-on-soft); }
+.o-pill--accent { background-color: var(--accent-soft);  color: var(--accent); }
+
+.o-pill .o-icon {
+  inline-size: 0.9em;
+  block-size: 0.9em;
+}
+
+/* ─────────────────────────── connection banner ────────────────────────── */
+
+.o-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  padding-top: max(var(--safe-top), var(--space-2));
+  font-size: var(--text-sm);
+  /* Deliberately quiet by default: this strip appears several times an hour on
+   * a table full of phones, and an alarming one trains people to ignore it. */
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
+  position: relative;
+  z-index: var(--z-panel);
+}
+
+.o-banner--warn { background-color: var(--warning-soft); color: var(--warning-on-soft); }
+.o-banner--bad  { background-color: var(--danger-soft);  color: var(--danger-on-soft); }
+
+.o-banner__text { flex: 1 1 auto; }
+
+.o-banner__countdown {
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────────────── toasts ───────────────────────────────── */
+
+/*
+ * Top-aligned, not bottom. On a phone the bottom third is the thumb zone and
+ * holds the size picker -- the one control a player needs under time pressure --
+ * so a toast that lands there covers exactly the wrong thing. The top edge is
+ * also where the connection banner lives, which keeps all transient status in
+ * one place.
+ */
+.o-toasts {
+  position: fixed;
+  z-index: var(--z-toast);
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  padding-top: max(var(--safe-top), var(--space-3));
+  pointer-events: none;
+}
+
+.o-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  border-inline-start: 3px solid var(--border-strong);
+  pointer-events: auto;
+}
+
+.o-toast--success { border-inline-start-color: var(--success); }
+.o-toast--warning { border-inline-start-color: var(--warning); }
+.o-toast--danger  { border-inline-start-color: var(--danger); }
+.o-toast--info    { border-inline-start-color: var(--info); }
+
+.o-toast__text { flex: 1 1 auto; min-width: 0; }
+
+.o-toast__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.o-toast__detail {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.o-toast__action {
+  flex: none;
+  min-height: var(--hit-min);
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.o-toast__close {
+  flex: none;
+  box-shadow: none;
+  background: none;
+}
+
+/* ─────────────────────────────── sheets ───────────────────────────────── */
+
+/* `.app-sheet` (layout.css) does the positioning: bottom sheet on a phone,
+ * centred dialog from 768px. This only styles the contents. */
+.o-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.o-sheet--compact { max-height: none; }
+
+.o-sheet__grip {
+  inline-size: 2.5rem;
+  block-size: 4px;
+  margin-inline: auto;
+  border-radius: var(--radius-pill);
+  background-color: var(--border-strong);
+  opacity: 0.5;
+}
+
+@media (min-width: 768px) {
+  .o-sheet__grip { display: none; }
+}
+
+.o-sheet__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.o-sheet__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+}
+
+.o-sheet__desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.o-sheet__body,
+.o-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.o-sheet__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.o-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.o-settings__heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.o-settings__line {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ───────────────────────────── home screen ────────────────────────────── */
+
+.o-home__hero {
+  text-align: center;
+  padding-block: var(--space-6) var(--space-2);
+}
+
+.o-home__title {
+  margin: 0;
+  font-size: var(--text-display);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--accent);
+}
+
+.o-home__tagline {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+
+.o-home__cardTitle {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+.o-home__choices,
+.o-home__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.o-home__variants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.o-home__variantsTitle {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+
+.o-rules {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.o-rules__summary {
+  min-height: var(--hit-min);
+  display: flex;
+  align-items: center;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.o-rules__list {
+  margin: var(--space-2) 0;
+  padding-inline-start: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.o-rules__note { margin: 0; color: var(--text-muted); }
+
+/* ───────────────────────────── room codes ────────────────────────────── */
+
+.o-code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  text-align: center;
+}
+
+.o-code__caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+
+.o-code__value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  /* Tracked out hard: this is read off a screen at an angle, from across a
+   * table, by someone typing it into a different phone. */
+  letter-spacing: 0.16em;
+  /* Let people select and copy it by hand when the buttons fail them. */
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.o-code__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.o-code__phoneticList {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.o-code__phoneticList li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-2);
+  font-size: var(--text-xs);
+}
+
+.o-code__phoneticChar {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-bold);
+}
+
+.o-code__phoneticWord { color: var(--text-secondary); }
+
+.o-codefield__input {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.14em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* ─────────────────────────────── lobby ────────────────────────────────── */
+
+.o-lobby__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+}
+
+.o-lobby__sub,
+.o-lobby__note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.o-lobby__sectionTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+
+.o-seats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.o-seat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  /* The player's colour as a thick leading edge: identifiable at a glance,
+   * and it never has to carry text contrast. */
+  border-inline-start: 4px solid var(--player-current);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+}
+
+.o-seat--empty {
+  border-style: dashed;
+  border-inline-start-style: dashed;
+  background-color: transparent;
+  opacity: 0.75;
+}
+
+.o-seat.is-self { background-color: var(--surface-2); }
+
+.o-seat__badge {
+  flex: none;
+  font-size: var(--text-lg);
+  color: var(--player-current-ui);
+}
+
+.o-seat__badges { display: flex; gap: 2px; flex: none; }
+
+.o-seat__body { flex: 1 1 auto; min-width: 0; }
+
+.o-variantBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.o-seat__name {
+  display: block;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.o-seat__you { color: var(--text-muted); font-weight: var(--weight-regular); }
+
+.o-seat__meta {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.o-seat__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.o-blockers {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.o-lobby__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-4);
+}
+
+/* ─────────────────────────────── game screen ──────────────────────────── */
+
+.o-game {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* The shell is a full-height grid; without this it has nothing to fill. */
+  height: 100%;
+}
+
+/*
+ * When the accessible board is pinned open it docks to the bottom edge, so the
+ * stage gives up that strip rather than letting the size picker sit underneath
+ * it. The value is generous on purpose -- three rows of 44px targets plus the
+ * hint text -- because a cramped alternative board is not an alternative.
+ */
+.o-game[data-textboard='open'] .app-stage {
+  padding-bottom: calc(max(var(--safe-bottom), var(--hud-pad)) + 13rem);
+}
+
+/* ────────────────────────────── the board ─────────────────────────────── */
+
+.o-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.o-stage__state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 28rem;
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.o-stage__state--fallback {
+  /* Opts back into pointer events: the shell above is pass-through. */
+  pointer-events: auto;
+}
+
+.o-stage__stateTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+/* ─────────────────────────── turn banner ──────────────────────────────── */
+
+.o-turn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--hit-min);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  /* A tint rather than a solid fill: the board is directly behind this and a
+   * saturated bar competes with the pieces it is describing. The identity is
+   * carried by the badge, the tint and the text colour together. */
+  background-color: var(--player-current-soft);
+  color: var(--player-current-on-soft);
+  box-shadow: var(--shadow-2);
+  min-width: 0;
+}
+
+.o-turn--idle {
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.o-turn__label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Your own turn is the one thing on screen that is allowed to move. */
+.o-turn.is-mine {
+  background-color: var(--player-current);
+  color: var(--player-current-on);
+  animation: o-breathe 2.4s var(--ease-standard) infinite;
+}
+
+.o-turn.is-mine .o-turn__label { font-size: var(--text-lg); }
+
+@keyframes o-breathe {
+  0%, 100% { box-shadow: var(--shadow-2); }
+  50% { box-shadow: var(--shadow-4); }
+}
+
+.o-turn.is-pending { opacity: 0.75; animation: none; }
+
+.o-turn__pending { font-weight: var(--weight-regular); }
+
+.o-turn__colours {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+.o-turn__colourChip {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background-color: var(--player-current);
+  color: var(--player-current-on);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* The colour that is not due reads as clearly parked, without disappearing --
+ * a two-colour player needs to see what is coming next turn. */
+.o-turn__colourChip.is-next,
+.o-turn__colourChip.is-unknown {
+  background-color: transparent;
+  color: var(--player-current-ui);
+  box-shadow: inset 0 0 0 1px var(--player-current-rim);
+  opacity: 0.8;
+}
+
+.o-turn__clock {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
+.o-turn__clock[data-urgent='true'] { color: var(--danger-on-soft); }
+
+.o-game__menu { flex: none; }
+
+/* ───────────────────────────── player rail ────────────────────────────── */
+
+.o-rail { width: 100%; min-width: 0; }
+
+.o-rail__list {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.o-rail__item { min-width: 0; }
+
+.o-pcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-top: 3px solid var(--player-current);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+
+/* The player to move gets a ring *and* elevation: two cues, neither of which
+ * is colour, because the card is already tinted by whose it is. */
+.o-pcard.is-turn {
+  box-shadow: var(--shadow-3), inset 0 0 0 2px var(--player-current);
+}
+
+.o-pcard.is-away { opacity: 0.7; }
+
+.o-pcard.is-gone {
+  opacity: 0.45;
+  /* A diagonal strike, so "left the game" is legible without colour. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 6px,
+    var(--border-subtle) 6px 7px
+  );
+}
+
+.o-pcard__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.o-pcard__badges { display: flex; gap: 1px; flex: none; }
+
+.o-pcard__badge.is-idle { opacity: 0.35; }
+
+.o-pcard__name {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.o-pcard__trays { display: flex; gap: var(--space-1); }
+
+.o-pcard__you {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* Docked panel form: a vertical roster with room to breathe. */
+.app-panel-start .o-rail__list {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: var(--space-3);
+}
+
+.app-panel-start .o-pcard {
+  flex-direction: row;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-3);
+  border-top-width: 1px;
+  border-inline-start: 4px solid var(--player-current);
+}
+
+.app-panel-start .o-pcard__name { font-size: var(--text-base); max-width: none; }
+
+/* ─────────────────────────── reserve trays ────────────────────────────── */
+
+.o-tray {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.o-tray__col {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+}
+
+.o-tray--sm .o-ring { inline-size: 12px; block-size: 12px; }
+.o-tray--md .o-ring { inline-size: 18px; block-size: 18px; }
+
+.o-ring {
+  display: block;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  overflow: visible;
+}
+
+.o-ring__stroke {
+  fill: none;
+  stroke: var(--player-current, var(--text-muted));
+  stroke-width: 4;
+}
+
+/* A spent ring is drawn, not removed: the gap is the information. Dashed and
+ * faint so "used" is a texture change, not just a lightness change. */
+.o-ring--spent .o-ring__stroke {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+}
+
+.o-ring--ghost .o-ring__stroke { opacity: 0.45; }
+
+.o-ring__letter {
+  fill: var(--player-current-ui, var(--text-secondary));
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.o-seatbadge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 1.5em;
+  block-size: 1.5em;
+  border-radius: var(--radius-full);
+  background-color: var(--player-current);
+  color: var(--player-current-on);
+  font-size: var(--text-xs);
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.o-seatbadge--sm { font-size: var(--text-2xs); }
+.o-seatbadge--lg { font-size: var(--text-md); }
+
+/* ─────────────────────────── size picker ──────────────────────────────── */
+
+.o-sizes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: 30rem;
+  margin-inline: auto;
+}
+
+.o-sizes__group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.o-size {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* Big. This is the control a thumb hits under time pressure. */
+  min-height: calc(var(--hit-min) + var(--space-4));
+  padding: var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+
+.o-size.is-selected {
+  border-color: var(--player-current-rim);
+  background-color: var(--player-current-soft);
+  color: var(--player-current-on-soft);
+  box-shadow: var(--shadow-2), inset 0 0 0 2px var(--player-current);
+}
+
+.o-size:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.o-size.is-empty .o-ring__stroke { stroke-dasharray: 2 3; }
+
+.o-size__label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.o-size__count {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
+.o-sizes__hint,
+.o-sizes__rule {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-2xs);
+  color: var(--text-secondary);
+}
+
+.o-sizes__rule {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+/* ─────────────────────── connection indicators ────────────────────────── */
+
+.o-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.o-conn__mark { display: inline-flex; }
+
+.o-conn .o-icon { inline-size: 0.9rem; block-size: 0.9rem; stroke-width: 2; }
+
+.o-conn--online       { color: var(--success-on-soft); }
+.o-conn--reconnecting { color: var(--warning-on-soft); }
+.o-conn--offline,
+.o-conn--gone         { color: var(--danger-on-soft); }
+
+.o-conn__halo {
+  opacity: 0.5;
+  animation: o-halo 1.6s var(--ease-standard) infinite;
+  transform-origin: center;
+}
+
+@keyframes o-halo {
+  0%   { opacity: 0.5; scale: 0.7; }
+  70%  { opacity: 0;   scale: 1.15; }
+  100% { opacity: 0;   scale: 1.15; }
+}
+
+.o-conn__ms {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+/* ───────────────────────── player detail list ─────────────────────────── */
+
+.o-plist { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+
+.o-plist__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  border-inline-start: 4px solid var(--player-current);
+}
+
+.o-plist__body { flex: 1 1 auto; min-width: 0; }
+
+.o-plist__name {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.o-plist__tag {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.o-plist__meta { margin: 0; font-size: var(--text-xs); color: var(--text-muted); }
+
+.o-plist__counts { display: flex; gap: var(--space-3); margin: var(--space-1) 0 0; }
+
+.o-plist__count { display: flex; align-items: baseline; gap: 2px; font-size: var(--text-xs); }
+
+.o-plist__countValue { font-weight: var(--weight-bold); font-size: var(--text-sm); }
+
+.o-plist__countLabel { color: var(--text-muted); }
+
+/* ──────────────────────── accessible text board ───────────────────────── */
+
+/*
+ * Hidden until something inside takes focus -- the skip-link pattern -- so a
+ * sighted keyboard user sees where their focus went instead of driving an
+ * invisible cursor. `is-visible` pins it open for players who prefer it, and
+ * it is forced open when the 3D board cannot draw.
+ */
+.o-textboard {
+  position: fixed;
+  z-index: var(--z-panel);
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  padding-bottom: max(var(--safe-bottom), var(--space-4));
+  background-color: var(--surface-1);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-4);
+}
+
+.o-textboard:not(.is-visible):not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.o-textboard__heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+
+.o-textboard__hint {
+  margin: 0;
+  max-width: 28rem;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.o-textboard__grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.o-textboard__row { display: flex; gap: var(--space-1); }
+
+.o-tcell {
+  display: grid;
+  place-items: center;
+  inline-size: var(--hit-min);
+  block-size: var(--hit-min);
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-2);
+  cursor: default;
+}
+
+.o-tcell.is-playable {
+  border-color: var(--accent);
+  background-color: var(--surface-1);
+  cursor: pointer;
+}
+
+/* Concentric, like the real space: the three rings stack in one grid cell. */
+.o-tcell__rings { display: grid; place-items: center; }
+
+.o-tcell__ring {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.o-tcell__ring[data-empty='true'] { opacity: 0.25; }
+
+/* ──────────────────────────── end of game ─────────────────────────────── */
+
+.o-result {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+.o-result__scrim {
+  position: absolute;
+  inset: 0;
+  background-color: var(--scrim);
+}
+
+.o-result__panel {
+  position: relative;
+  width: min(28rem, 100%);
+  max-height: calc(var(--vh-dynamic) - var(--space-12));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  padding-bottom: max(var(--safe-bottom), var(--space-6));
+  border-radius: var(--radius-xl);
+  background-color: var(--surface-1);
+  box-shadow: var(--shadow-5);
+  border-top: 5px solid var(--player-current);
+  text-align: center;
+}
+
+.o-result__badge {
+  margin: 0;
+  align-self: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background-color: var(--player-current-soft);
+  color: var(--player-current-on-soft);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.o-result__crest { font-size: var(--text-2xl); }
+
+.o-result__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+}
+
+.o-result__detail {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+
+.o-winline {
+  margin: 0;
+  padding: var(--space-3);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-2);
+  text-align: start;
+}
+
+.o-winline__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.o-winline__text::first-letter { text-transform: uppercase; }
+
+.o-result__actions,
+.o-rematch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.o-rematch__status,
+.o-result__waiting {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Collapsed form, so the final position can be studied. */
+.o-resultbar {
+  position: fixed;
+  z-index: var(--z-modal);
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  padding-bottom: max(var(--safe-bottom), var(--space-3));
+  background-color: var(--surface-1);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-3);
+}
+
+.o-resultbar__text { font-weight: var(--weight-semibold); }
+
+/* ──────────────────────── motion & contrast ───────────────────────────── */
+
+/*
+ * `base.css` already collapses durations under `prefers-reduced-motion`, but
+ * looping animations need switching off rather than speeding up -- a 0ms
+ * infinite pulse still repaints forever. The `data-reduced-motion` attribute
+ * covers the in-app preference for players who have not changed an OS setting.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .o-turn.is-mine,
+  .o-conn__halo,
+  .o-spinner__dot {
+    animation: none;
+  }
+}
+
+.o-app:has([data-reduced-motion='true']) .o-turn.is-mine,
+.o-app:has([data-reduced-motion='true']) .o-conn__halo {
+  animation: none;
+}
+
+/* Where the OS asks for more contrast, trade the tints for hard edges. */
+@media (prefers-contrast: more) {
+  .o-pcard,
+  .o-seat,
+  .o-size,
+  .o-turn {
+    border: 2px solid var(--border-strong);
+  }
+}

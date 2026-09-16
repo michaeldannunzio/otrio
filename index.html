@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      viewport-fit=cover  -> we paint into the notch/home-indicator area and use
+                             env(safe-area-inset-*) in CSS to keep controls clear.
+      No maximum-scale / user-scalable=no: pinch zoom is an accessibility feature
+      and four people squinting at a shared game need it.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      Exactly one theme-color, with no media attribute.
+      `applyThemeAttributes()` in src/styles/theme.ts rewrites the content of the
+      first matching tag to the resolved `--bg`. A media-scoped pair would leave
+      it writing the dark colour into the light-only tag, so the status bar would
+      end up inverted. The bootstrap below sets the right value before paint.
+    -->
+    <meta name="theme-color" content="#e8ecf3" />
+
+    <title>Otrio</title>
+    <meta
+      name="description"
+      content="Otrio in 3D for two to four players. Create a room, share the code, play from any phone."
+    />
+
+    <!-- Progressive-web-app-ish hints so a phone can keep it fullscreen. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Otrio" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <script>
+      /*
+       * Theme bootstrap. Runs before first paint so we never flash the wrong
+       * palette. Mirrors PREFS_STORAGE_KEY / applyTheme() in src/store/prefsStore.ts
+       * -- if you change the key or the attribute, change it in both places.
+       */
+      (function () {
+        try {
+          var raw = localStorage.getItem('otrio.prefs.v1');
+          var theme = raw ? (JSON.parse(raw).state || {}).theme : null;
+          if (theme !== 'light' && theme !== 'dark') theme = 'system';
+          var resolved =
+            theme === 'system'
+              ? window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+              : theme;
+          var root = document.documentElement;
+          root.setAttribute('data-theme', resolved);
+          root.setAttribute('data-theme-pref', theme);
+          // Also here, not just in applyTheme(): this is what stops the
+          // browser's own scrollbars and form controls flashing light.
+          root.style.colorScheme = resolved;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.content = resolved === 'dark' ? '#0b0e13' : '#e8ecf3';
+        } catch (err) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
+
+    <style>
+      /*
+       * Only the bare minimum lives here: enough to make the first frame the
+       * right colour and the right size. Everything else is in src/styles
+       * (tokens, owned elsewhere) and src/ui/ui.css (components, owned here).
+       */
+      html,
+      body,
+      #root {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        /* Stop pull-to-refresh and rubber-banding from fighting the 3D board. */
+        overscroll-behavior: none;
+        /* These two must equal --bg / --text-primary in src/styles/tokens.css.
+         * They only cover the gap before that stylesheet loads. */
+        background: #e8ecf3;
+        color: #0f141b;
+      }
+      :root[data-theme='dark'] body {
+        background: #0b0e13;
+        color: #edf1f8;
+      }
+      #root {
+        isolation: isolate;
+      }
+      .app-boot {
+        display: grid;
+        place-items: center;
+        height: 100%;
+        font: 500 1rem/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        opacity: 0.6;
+      }
+      .app-noscript {
+        max-width: 34rem;
+        margin: 0 auto;
+        padding: 2rem 1.25rem;
+        font: 400 1rem/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>
+      <div class="app-noscript">
+        <h1>Otrio needs JavaScript</h1>
+        <p>
+          This is a 3D multiplayer board game that runs entirely in your browser.
+          Please enable JavaScript and reload.
+        </p>
+      </div>
+    </noscript>
+    <div id="root">
+      <div class="app-boot">Loading Otrio&hellip;</div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
