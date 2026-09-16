@@ -255,6 +255,21 @@ export type ThemeMode = 'light' | 'dark';
  * rendered board above L* 34 equivalent, that measurement beats this arithmetic
  * and theming re-derives against it.
  *
+ * HOW MUCH ROOM ACTUALLY EXISTS, so nobody has to re-ask:
+ *
+ *   L* 31.1  here. 2.9 below the published ceiling, unspent on purpose.
+ *   L* 34    the published ceiling. Free.
+ *   L* 36    the real wall. Theming has 2 L* in hand above the published
+ *            figure; taking it costs only red's rim chroma, 69 -> 65. Ask.
+ *   L* 38    a CLIFF, not a gradient. Green's fill is L* 79.9; up to a ceiling
+ *            of 36 its rim sits at L* 67, safely under it. At 38 the rim is
+ *            pushed into its own fill and has to jump over to L* 91 — a pale
+ *            yellow-green that stops reading as the green player's colour.
+ *
+ * So: lightening further is free to 36 and expensive past it, and the expense
+ * is paid in a player's identity rather than in contrast. Past 36, change the
+ * board rather than the rims, and take it to the director first.
+ *
  * SAME VALUE IN BOTH THEMES, on purpose. The board is a wooden object; it does
  * not repaint when the 2D chrome does. What changes between themes is the light
  * on it — exposure, environment intensity, key intensity, fog and background

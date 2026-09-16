@@ -333,6 +333,14 @@ double-converts and the scene comes out washed out.
    `toneMapped: false`. Hex-vs-hex is optimistic; the margin absorbs that. To take the board above
    L\* 34, the rims must be re-derived rather than reused.
 
+   Re-deriving is **free up to L\* 36** (it costs red's rim chroma 69 → 65, and nothing else). Past
+   36 there is a cliff rather than a gradient: the green player's fill is L\* 79.9, and at a ceiling
+   of 38 the board pushes green's rim *into* its own fill, forcing it over to L\* 91 — a pale
+   yellow-green that stops reading as the green player at all. **Raising the ceiling past 36 spends
+   a player's identity on board lightness, which makes it a product decision rather than a
+   derivation detail.** The full ladder sits beside the constant in `tokens.ts`, and beside
+   `BOARD_TINTS` in `Board.tsx`.
+
    All four rims sit at nearly one lightness (L\* 65/65/65/76) and that is not an oversight.
    Contrast is a pure luminance function, so requiring all four to clear 3:1 against one board
    *forces* one luminance — "every rim clears the board" and "rims differ in greyscale" are

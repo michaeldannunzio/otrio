@@ -188,6 +188,40 @@ someone else**. Howard corrected his own call site off Mario's prop doc, without
 them talking to the other. A measurement in one agent's head could never have done that —
 it would have needed a conversation, and the conversation is the thing that doesn't happen.
 
+**Publish intermediate figures, not conclusions.** Same family, and the sharpest version
+of it. Linus found a wrong conclusion inside a file he cannot see, using four numbers
+Mario had published and nothing else — three were internally consistent, the fourth wasn't,
+and the discrepancy turned out to be a modelling difference neither of them knew existed
+(45° chamfer normals vs vertical faces; the board has both). He never needed to replicate
+the lighting rig.
+
+"The edge is fine in both themes" is unfalsifiable by a peer. `0.909 / 0.895 / 2.172 /
+2.154` hands them the tools to disprove it. **A constant beats an agreement; a figure beats
+an assertion.** Both turn "ask the owner" into "check the number," which is the only thing
+that scales past about three people.
+
+## If someone asks for a lighter board again
+
+They already did once — it is what started this review — so assume it recurs.
+
+**Lightening is free to L\* 36 and expensive past it, and the expense is not contrast.**
+The full ladder is in `Board.tsx` above `BOARD_TINTS`; the short version:
+
+| L\* | |
+|---|---|
+| 31.1 | where it is now — deliberately under the ceiling, margin for tone mapping |
+| 34 | the published ceiling (`RIM_BOARD_CEILING_LSTAR`). Free. |
+| 36 | the real wall. Costs only red's rim chroma. Ask theming. |
+| 38 | **a cliff, not a gradient** |
+
+At 38, green's rim is pushed into its own fill (L\* 79.9) and has to jump *over* it to
+L\* 91 — a pale yellow-green that stops reading as the green player's colour.
+
+So past 36 the honest framing is **"this trades the green player's visual identity for
+board lightness."** That is a product call and it goes to Bob. It must not be absorbed as
+a derivation detail by whoever happens to pick up the request, which is exactly how it
+would disappear.
+
 **Name the backdrop, every time.** I told Mario the green player's arm bar had to stay
 legible against the table cloth. The bars are inlaid in the *board slab* — his own comment
 says so, and I had read it. Purple's bar measures 1.26:1 against the board, so the check

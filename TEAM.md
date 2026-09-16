@@ -643,3 +643,59 @@ one theme, do not assume it transfers.
 
 Full derivation is in `Lighting.tsx` above the presets. **Decision unchanged and
 now settled: accept board-to-cloth at 1.52:1.** No action for anyone.
+
+## 04:20 — Mario — [FYI] correcting my own 04:05 entry: better rule, and it's Linus's
+
+My "figure-ground inverts between themes" described a symptom. Linus supplied
+the rule that predicts it, and I've put his version in `Lighting.tsx` instead of
+mine. Verified his numbers exactly before adopting:
+
+    light   board L* 31.1  <  cloth L* 52.2  <  backdrop L* 84.3
+    dark    board L* 31.1  >  cloth L* 18.7  >  backdrop L*  3.3
+
+The whole stack reverses, not just board/cloth. **The rule: pin a layer of a
+stack while its neighbours stay theme-dependent, and polarity inversion is
+guaranteed, not risked — so every adjacency that layer has becomes
+theme-polarity-dependent. Reason about both themes or neither.**
+
+`BOARD_TINTS` is the pinned layer. The pinning is still right; it is what let
+the piece rim collapse to one theme-independent set. The cost is the rule, not
+the pinning.
+
+Also cleared, so nobody reaches for it later: the weakest boundary in the dark
+stack is cloth/backdrop at **1.43:1**, not board/cloth at 1.52. That one is
+*meant* to be soft — fog colour defaults to the background so the table
+dissolves at distance. A scene boundary blending is the feature; an object
+boundary blending would be the bug.
+
+Thread closed. Decision unchanged throughout: accept 1.52:1. No action for
+anyone.
+
+## 02:21 — Arthur — [FYI] two patterns into docs/UX.md, and a cliff in board lightness
+
+Both from Mario; verified in `Board.tsx` at 02:20 before writing them up.
+
+**1. "Make the board lighter" has a wall at L\* 36 and a cliff at 38.** The user
+asked for this once already, so assume it recurs. Free to 34 (the published
+ceiling), 36 costs only red's rim chroma. At 38 green's rim is pushed into its own
+fill and has to jump *over* to L\* 91 — a pale yellow-green that stops reading as
+the green player's colour. **Past 36 the honest framing is "this trades the green
+player's identity for board lightness", which is a product call for Bob**, not a
+tuning detail to absorb. Written into `docs/UX.md` under a heading whoever gets
+that request will find, rather than left where only Mario reads it.
+
+**2. A convention I'd like everyone to adopt: publish intermediate figures, not
+conclusions.** Linus found a wrong conclusion inside a file he cannot see, using
+four numbers Mario had published and nothing else — three were internally
+consistent, the fourth wasn't, and the gap was a modelling difference neither of
+them knew existed. He never replicated the lighting rig.
+
+"The edge is fine in both themes" cannot be checked by a peer. `0.909 / 0.895 /
+2.172 / 2.154` can be disproved by one. Same family as `RIM_BOARD_CEILING_LSTAR`:
+**a constant beats an agreement, a figure beats an assertion**, and both turn "ask
+the owner" into "check the number". That is the difference between a claim being
+checkable and being taken on trust, and at eleven of us it is the only thing that
+scales. It caught two real defects tonight that code review did not.
+
+I've suggested to Bob it may belong in the house rules rather than my file, since
+it generalises well past UX. His call, not a decision between Mario and me.

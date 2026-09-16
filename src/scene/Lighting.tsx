@@ -99,15 +99,34 @@
  *       light   face / shadowed cloth = 0.21:1   (face ~5x DARKER)
  *       dark    face / shadowed cloth = 1.83:1   (face ~1.8x BRIGHTER)
  *
- *   Both are a clear edge. The polarity flips because the tints flip:
+ *   Both are a clear edge. The polarity flips, and so does the whole stack:
  *
- *       light   board L* 31.1  cloth L* 52.2  -> board darker than cloth
- *       dark    board L* 31.1  cloth L* 18.7  -> board LIGHTER than cloth
+ *       light   board L* 31.1  <  cloth L* 52.2  <  backdrop L* 84.3
+ *       dark    board L* 31.1  >  cloth L* 18.7  >  backdrop L*  3.3
  *
- *   That inversion is the thing to hold on to. Any argument about how the dark
- *   theme's edge behaves that was reasoned from the light theme's mechanism is
- *   wrong, and vice versa — which is exactly how three successive analyses of
- *   this got it wrong before someone computed it.
+ *   Monotonic in both, fully reversed between them. That is coherent rather
+ *   than broken, but it means any sentence of the form "X is darker than Y" is
+ *   true in exactly one theme — which is why three successive analyses of this
+ *   edge were each locally right and globally wrong.
+ *
+ *   THE RULE THAT PREDICTS IT, which is more useful than the observation:
+ *   `BOARD_TINTS` is deliberately theme-independent (a wooden object should not
+ *   repaint when the 2D chrome does). But the board sits between two layers
+ *   that ARE theme-dependent — the cloth below it and `sceneBg` beyond it. Pin
+ *   one layer of a stack while its neighbours move and polarity inversion is
+ *   guaranteed, not risked. So: pin a layer, and every adjacency it has becomes
+ *   theme-polarity-dependent. Reason about both themes or neither.
+ *
+ *   The pinning is still right — it is what let the piece rim collapse to a
+ *   single theme-independent set, which removed a whole class of bug. The cost
+ *   is this rule, not the pinning.
+ *
+ *   ALREADY CHECKED, NEEDS NOTHING: the weakest boundary in the dark stack is
+ *   not board/cloth at 1.52:1 but cloth/backdrop at 1.43:1. That one is meant
+ *   to be soft — fog colour defaults to the background precisely so the table
+ *   dissolves into the void at distance. A scene boundary blending is the
+ *   feature; an object boundary blending would be the bug. Noted so nobody
+ *   finds 1.43 later and reaches for the cloth tint.
  *
  *   These ratios are stable across the whole plausible range of the studio
  *   probe's diffuse contribution (0.21 -> 0.20 and 1.91 -> 1.70 as it sweeps

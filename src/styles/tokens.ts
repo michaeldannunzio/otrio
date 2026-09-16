@@ -367,6 +367,27 @@ export const PLAYERS: readonly PlayerIdentity[] = [
  * │                                                                           │
  * │ To go lighter than L* 34, the rims must be re-derived — not reused.        │
  * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * WHAT RAISING IT COSTS — computed, so nobody has to rediscover it under time
+ * pressure. Re-derived rim sets at higher ceilings, with their CIELAB chroma:
+ *
+ *   ceiling   rims                                       chroma
+ *   L* 34     #be85f8 #fd7749 #81ac26 #67c8e6            66 69 68 31   <- shipped
+ *   L* 36     #c38afe #ff7f52 #86b22c #67c8e6            66 65 68 31   free
+ *   L* 38     #c993ff #ff8a61 #c9f46d #67c8e6            61 58 68 31   green pastel
+ *   L* 42     #d3a5ff #ffa07e #c9f46d #67c8e6            51 45 68 31
+ *
+ * Free up to 36 — the only cost is red's rim chroma 69 -> 65, which is nothing.
+ *
+ * Past 36 there is a CLIFF rather than a gradient, and the cause is specific:
+ * the GREEN player's fill is L* 79.9. Up to a ceiling of 36 its rim sits at
+ * L* 67, safely below that fill. At 38 the board pushes the rim up INTO its own
+ * fill, so it has to jump over to L* 91 — `#c9f46d`, a pale yellow-green that
+ * stops reading as the green player at all.
+ *
+ * So raising the ceiling past 36 spends a PLAYER'S IDENTITY on board lightness.
+ * That is a product decision, not a derivation detail. Escalate it; do not
+ * absorb it by quietly re-deriving.
  */
 export const RIM_BOARD_CEILING_LSTAR = 34
 
