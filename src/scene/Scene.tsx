@@ -219,9 +219,17 @@ export interface SceneProps {
   /**
    * What the camera frames. 'auto' (default) keeps the whole cross while a
    * playing space stays at least 72 CSS px across, and drops to the 3x3 playing
-   * area below that — which is every phone in portrait. The storage arms carry
-   * no gameplay (RULES.md §1.1) and the HUD already shows every reserve count
-   * per colour and per size, so nothing is lost and the board roughly doubles.
+   * area below that — which is every phone in portrait, and nothing else.
+   *
+   * It clips horizontally only, so every player keeps their own arm and their
+   * opposite's in full; the two side arms show their inner edge. The 2D rail
+   * carries every reserve count legibly anyway, so the arms are scenery here
+   * rather than a readout. CameraRig.tsx has the full argument and the numbers.
+   *
+   * ENABLED ON MEASUREMENT, NOT OBSERVATION — nobody had seen this render on a
+   * phone when it was turned on. If a real frame disagrees, the frame wins:
+   * `framing="board"` restores the previous behaviour in one prop.
+   *
    * `onFraming` reports the distance and `pxPerUnit` actually chosen.
    */
   framing?: 'board' | 'play' | 'auto';
@@ -411,7 +419,7 @@ export function Scene({
   theme = 'light',
   insets,
   zoom = 1,
-  framing = 'board',
+  framing = 'auto',
   animating = false,
   frameloop,
   quality = 'auto',

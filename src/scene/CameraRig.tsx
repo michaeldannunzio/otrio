@@ -350,19 +350,38 @@ export interface CameraRigProps {
    *             MIN_COMFORTABLE_SPACE_PX across, otherwise 'play'. A single
    *             monotonic crossover on viewport width, so it cannot oscillate.
    *
-   * DEFAULT IS 'board', and the reason is a live tradeoff rather than an
-   * oversight. On a 360px phone 'board' leaves a playing space at 55 CSS px and
-   * 'play' at 86 — a 56% gain on the thing you aim at, and a placement is
-   * permanent (RULES.md §4.3). But the arms are not empty: the UI mounts a
-   * piece for every ring still in storage, so they are a live readout of who
-   * has which sizes left, which RULES.md §9 calls out and which decides most
-   * turns. 55 px still clears the 44pt minimum, so 'board' is not a failure —
-   * just tighter than comfortable. Deleting information to buy comfort is a
-   * product call, not mine, and nobody has yet seen this render with pieces on
-   * the arms. The capability is here; flipping the default is one prop.
+   * DEFAULT IS 'auto', and it only ever fires on phone portrait — landscape and
+   * everything above already clear the threshold, so the blast radius is
+   * exactly the case that needed help. On a 360px phone it takes a playing
+   * space from 55 to 86 CSS px, and the 3x3 from 165x130 to 258x203. A
+   * placement is permanent (RULES.md §4.3), so aiming through a 55px window is
+   * the wrong thing to ask of anyone.
    *
-   * `onFraming` reports the `pxPerUnit` actually achieved, so this is
-   * measurable rather than arguable once there is a screenshot.
+   * This default was 'board' until two things changed, and the order mattered:
+   *
+   *   1. The 2D rail started carrying every reserve count legibly at every
+   *      breakpoint (one ring per size at true relative diameter, with a
+   *      count). Until then the arms were the only readable record of who had
+   *      which sizes left — RULES.md §9 — and cropping them would have deleted
+   *      it. Now they are scenery, and good scenery: an arm visibly empties.
+   *   2. Measuring what 'play' actually clips, rather than assuming. It clips
+   *      HORIZONTALLY ONLY: the board rotates so the local player's arm is
+   *      always the near one, and a portrait viewport is tall, so every player
+   *      keeps their own arm and their opposite's in full. Only the two side
+   *      arms clip, to their inner ~23%, and they remain visible as partial
+   *      rings rather than vanishing. That is structural, not luck, but it was
+   *      still found by measuring.
+   *
+   * ENABLED ON MEASUREMENT, NOT OBSERVATION. Every number above is geometry —
+   * rays cast through the inset rect onto the board plane — and no one had seen
+   * this render on a phone when it was turned on. This project has repeatedly
+   * shown geometry-without-a-frame going wrong, three times in this file's own
+   * neighbourhood. So: if a real phone frame disagrees with any of it, the
+   * frame wins. Set `framing="board"` and say so; it is one prop and it is
+   * meant to be reversible.
+   *
+   * `onFraming` reports the `pxPerUnit` actually achieved, which is the size of
+   * a playing space in CSS px — so this stays measurable rather than arguable.
    */
   framing?: 'board' | 'play' | 'auto';
 
@@ -407,7 +426,7 @@ export function CameraRig({
   insets,
   center = BOARD_BOUNDS.center,
   halfExtents = BOARD_BOUNDS.halfExtents,
-  framing: framingMode = 'board',
+  framing: framingMode = 'auto',
   fitPoints,
   pitchDeg,
   azimuthDeg = CAMERA_DEFAULTS.azimuthDeg,
