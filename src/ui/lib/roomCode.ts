@@ -100,6 +100,38 @@ export function sanitizeRoomCodeInput(input: string): string {
   return normalizeRoomCode(input).slice(0, ROOM_CODE_MAX_LENGTH);
 }
 
+/**
+ * The same, but it says what it threw away.
+ *
+ * `sanitizeRoomCodeInput` silently drops anything unusable, which is the exact
+ * failure `normalizeRoomCodeChar` was written to prevent: a player presses a
+ * key, nothing appears, and there is no way to tell a dead keyboard from a
+ * character the field refuses. Silence is the worst possible answer because it
+ * is indistinguishable from a bug.
+ *
+ * Whitespace and the thin spaces we inject for grouping are not reported --
+ * those are ours, not the player's, and telling someone their space bar was
+ * rejected would be noise.
+ */
+export function sanitizeRoomCodeInputReporting(input: string): {
+  value: string;
+  /** Distinct characters the player typed that a room code cannot contain. */
+  rejected: string[];
+} {
+  const rejected: string[] = [];
+  let value = '';
+  for (const raw of input) {
+    if (/\s/u.test(raw)) continue; // our own grouping, or a stray space
+    const result = normalizeRoomCodeChar(raw);
+    if (result.ok) {
+      if (value.length < ROOM_CODE_MAX_LENGTH) value += result.char;
+    } else if (!rejected.includes(raw)) {
+      rejected.push(raw);
+    }
+  }
+  return { value, rejected };
+}
+
 /** Complete enough to be worth sending to the referee. */
 export function isEnterableRoomCode(code: string): boolean {
   return isPlausibleRoomCode(normalizeRoomCode(code));

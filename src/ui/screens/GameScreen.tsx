@@ -12,6 +12,7 @@ import { SizePicker } from '../hud/SizePicker';
 import { TextBoard } from '../hud/TextBoard';
 import { MoveLog } from '../hud/MoveLog';
 import { ResultOverlay } from './ResultOverlay';
+import { ColourReveal } from './ColourReveal';
 
 /**
  * The playing screen, built on the shell in `src/styles/layout.css`.
@@ -131,6 +132,8 @@ export function GameScreen() {
         the keyboard and screen-reader route to the same game; see TextBoard.tsx.
       */}
       <TextBoard />
+
+      <ColourReveal />
 
       <ResultOverlay />
     </div>

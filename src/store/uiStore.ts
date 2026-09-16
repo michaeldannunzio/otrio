@@ -134,6 +134,12 @@ export interface UiState {
 
   /** Set when the win overlay has been dismissed so the board can be studied. */
   resultDismissed: boolean;
+  /**
+   * Room code whose colour reveal has already played. Once per room, not once
+   * per game: a rematch keeps seats and colours, so a second beat would teach
+   * nothing and only delay the board.
+   */
+  revealShownFor: string | null;
 }
 
 export interface UiStore extends UiState {
@@ -155,6 +161,7 @@ export interface UiStore extends UiState {
   clearToasts(): void;
 
   setResultDismissed(dismissed: boolean): void;
+  setRevealShownFor(code: string | null): void;
   /** Back to a clean slate when leaving a room. */
   resetForNewRoom(): void;
 }
@@ -174,6 +181,7 @@ const INITIAL: UiState = {
   assertive: null,
   toasts: [],
   resultDismissed: false,
+  revealShownFor: null,
 };
 
 /** Timers for auto-dismissing toasts, kept outside React. */
@@ -245,6 +253,7 @@ export const useUi = create<UiStore>()((setState, getState) => ({
   },
 
   setResultDismissed: (resultDismissed) => setState({ resultDismissed }),
+  setRevealShownFor: (revealShownFor) => setState({ revealShownFor }),
 
   resetForNewRoom: () => {
     for (const timer of toastTimers.values()) clearTimeout(timer);

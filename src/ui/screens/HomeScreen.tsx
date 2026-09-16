@@ -25,6 +25,7 @@ import { isEnterableRoomCode } from '../lib/roomCode';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Field, Segmented, Switch } from '../components/primitives';
 import { RoomCodeInput } from '../components/RoomCode';
+import { HowToPlay } from '../components/HowToPlay';
 
 /**
  * The first screen: pick a name, then either open a room or join one.
@@ -50,6 +51,7 @@ export function HomeScreen() {
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [allowSpectators, setAllowSpectators] = useState(true);
   const [variants, setVariants] = useState<VariantOptions>(DEFAULT_VARIANTS);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [busy, setBusy] = useState<null | 'create' | 'join'>(null);
   const [error, setError] = useState<{
     text: string;
@@ -272,17 +274,27 @@ export function HomeScreen() {
         </Card>
       ) : null}
 
-      <details className="o-rules">
-        <summary className="o-rules__summary">How you win</summary>
-        <ul className="o-rules__list">
-          <li>Three of your rings of the same size in a row, column or diagonal.</li>
-          <li>Three of your rings in a line growing small, medium, large — either direction.</li>
-          <li>All three of your sizes nested inside one space.</li>
-        </ul>
-        <p className="o-rules__note">
-          On your turn you place exactly one ring. Rings never move once placed.
-        </p>
-      </details>
+      {/*
+        A real button, not a bare `<details>`. The old markup rendered "How you
+        win" as a heading with no chevron and no affordance, so it read as a
+        section whose content had failed to load rather than something you could
+        open.
+      */}
+      <div className="o-disclosure">
+        <button
+          type="button"
+          className="o-disclosure__summary"
+          aria-expanded={rulesOpen}
+          aria-controls="home-rules"
+          onClick={() => setRulesOpen((v) => !v)}
+        >
+          <span className="o-disclosure__chevron" aria-hidden="true" />
+          How you win
+        </button>
+        <div id="home-rules" hidden={!rulesOpen}>
+          <HowToPlay twoPlayer={maxPlayers === 2} />
+        </div>
+      </div>
     </div>
   );
 }

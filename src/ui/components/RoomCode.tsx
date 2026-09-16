@@ -1,4 +1,4 @@
-import { forwardRef, useId, useState } from 'react';
+import { forwardRef, useId, useRef, useState } from 'react';
 
 import { ui } from '../../store';
 import {
@@ -7,7 +7,7 @@ import {
   isEnterableRoomCode,
   roomCodePhonetics,
   roomCodeUrl,
-  sanitizeRoomCodeInput,
+  sanitizeRoomCodeInputReporting,
   shareRoom,
   spellRoomCode,
   ROOM_CODE_MAX_LENGTH,
@@ -41,6 +41,11 @@ export const RoomCodeInput = forwardRef<
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
+  // What the field just refused, so a keystroke that produces nothing says why.
+  // Cleared on the next accepted character rather than on a timer: it should
+  // persist exactly as long as the field looks unresponsive.
+  const [rejected, setRejected] = useState<string | null>(null);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return (
     <div className={['o-field o-codefield', error ? 'o-field--error' : ''].filter(Boolean).join(' ')}>
@@ -52,7 +57,17 @@ export const RoomCodeInput = forwardRef<
         id={id}
         className="o-field__input o-codefield__input"
         value={formatRoomCode(value)}
-        onChange={(e) => onChange(sanitizeRoomCodeInput(e.currentTarget.value))}
+        onChange={(e) => {
+          const result = sanitizeRoomCodeInputReporting(e.currentTarget.value);
+          onChange(result.value);
+          if (result.rejected.length > 0) {
+            setRejected(result.rejected[result.rejected.length - 1]);
+            if (clearTimer.current) clearTimeout(clearTimer.current);
+            clearTimer.current = setTimeout(() => setRejected(null), 4000);
+          } else if (rejected !== null) {
+            setRejected(null);
+          }
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onSubmit && isEnterableRoomCode(value)) {
             e.preventDefault();
@@ -75,6 +90,14 @@ export const RoomCodeInput = forwardRef<
       />
       <p className="o-field__hint" id={hintId}>
         Letters and numbers, as read out by whoever started the game.
+      </p>
+      {/*
+        A refused keystroke must never be silent. `role="status"` rather than
+        `alert`: it is a correction, not a failure, and interrupting someone
+        mid-word while they type is worse than waiting for a pause.
+      */}
+      <p className="o-field__note" role="status">
+        {rejected ? `Room codes don’t use “${rejected}” — letters and numbers only.` : ''}
       </p>
       {error ? (
         <p className="o-field__error" id={errorId} role="alert">
@@ -102,7 +125,13 @@ export const RoomCodeInput = forwardRef<
  * because "9K4TM" read as a word helps nobody.
  */
 export function RoomCodeDisplay({ code, compact = false }: { code: string; compact?: boolean }) {
-  const [phoneticsOpen, setPhoneticsOpen] = useState(false);
+  /*
+   * Open by default. The premise of this product is four people in the same
+   * room, so reading the code aloud is the *primary* way it travels -- copy and
+   * share are the fallbacks for the person who isn't there. Collapsed and
+   * ranked third behind both had it exactly backwards.
+   */
+  const [phoneticsOpen, setPhoneticsOpen] = useState(true);
   const spelled = spellRoomCode(code);
 
   async function onCopy() {
@@ -141,15 +170,6 @@ export function RoomCodeDisplay({ code, compact = false }: { code: string; compa
         <span className="u-visually-hidden">{spelled}</span>
       </p>
 
-      <div className="o-code__actions">
-        <Button onClick={onCopy} icon={<CopyIcon />}>
-          Copy code
-        </Button>
-        <Button onClick={onShare} icon={<ShareIcon />}>
-          Share link
-        </Button>
-      </div>
-
       <div className="o-code__phonetics">
         <button
           type="button"
@@ -172,6 +192,16 @@ export function RoomCodeDisplay({ code, compact = false }: { code: string; compa
             </li>
           ))}
         </ul>
+      </div>
+
+      {/* Secondary: for whoever is not in the room. */}
+      <div className="o-code__actions">
+        <Button onClick={onCopy} icon={<CopyIcon />}>
+          Copy code
+        </Button>
+        <Button onClick={onShare} icon={<ShareIcon />}>
+          Share link
+        </Button>
       </div>
     </div>
   );

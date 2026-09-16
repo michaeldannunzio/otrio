@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import {
+  firstColourOfSeat,
   leaveRoom,
   openSeatCount,
   playersNeededForSeat,
@@ -14,8 +15,8 @@ import {
   useNet,
   variantBadges,
 } from '../../store';
-import { MAX_PLAYERS } from '../../net/protocol';
-import type { PlayerColor, PlayerView, Seat } from '../../net/protocol';
+import { ALL_SEATS, MAX_PLAYERS } from '../../net/protocol';
+import type { PlayerView, Seat } from '../../net/protocol';
 import { describeError, describePeer, joinNames } from '../lib/copy';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Pill } from '../components/primitives';
@@ -85,7 +86,13 @@ export function LobbyScreen() {
           Players
         </h2>
         <ul className="o-seats">
-          {Array.from({ length: Math.min(room.maxPlayers, MAX_PLAYERS) }, (_, seat) => {
+          {/*
+            `ALL_SEATS` rather than `Array.from({length}, (_, i) => i)`: the
+            latter produces a bare `number`, which then needs a cast to reach
+            anything typed `Seat` -- and a cast there puts back exactly the hole
+            that narrowing `Seat` just closed.
+          */}
+          {ALL_SEATS.filter((seat) => seat < Math.min(room.maxPlayers, MAX_PLAYERS)).map((seat) => {
             const player = players.find((p) => p.seat === seat) ?? null;
             return (
               <SeatRow
@@ -228,7 +235,11 @@ function SeatRow({
 }) {
   // Seat N always starts on colour N -- deterministic in the engine, see the
   // note in LobbyScreen. Only whether a *second* colour joins it is open.
-  const colour = seat as PlayerColor;
+  //
+  // Through `firstColourOfSeat` rather than `seat as PlayerColor`: the two
+  // unions are structurally identical, so the cast would compile forever even
+  // if the seating rule changed. The helper is where that rule lives.
+  const colour = firstColourOfSeat(seat);
   const seatName = `Seat ${seat + 1} — ${colourLabel(colour)}`;
   const second = secondColourIfTwoPlay(seat);
 

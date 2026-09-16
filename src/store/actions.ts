@@ -27,6 +27,7 @@ import type {
   PieceSize,
   PlayerColor,
   RoomCode,
+  Seat,
 } from '../net/protocol';
 import { normalizeRoomCode } from '../net/protocol';
 
@@ -154,7 +155,7 @@ export function autoArmSize(): void {
  */
 export function resolveColour(
   room: Parameters<typeof turnColours>[0],
-  seat: number,
+  seat: Seat,
 ): PlayerColor | null {
   const offered = turnColours(room);
   if (offered.length === 1) return offered[0];

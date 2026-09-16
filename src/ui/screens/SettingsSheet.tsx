@@ -1,4 +1,5 @@
 import {
+  isTwoPlayerVariant,
   leaveRoom,
   outcomeOf,
   useNet,
@@ -14,6 +15,7 @@ import { Button, Field, Segmented, Switch } from '../components/primitives';
 import { RoomCodeDisplay } from '../components/RoomCode';
 import { PlayerDetails } from '../hud/PlayerRail';
 import { MoveLog } from '../hud/MoveLog';
+import { HowToPlay } from '../components/HowToPlay';
 
 /**
  * Everything behind the menu button: preferences, the room code again (for the
@@ -36,6 +38,7 @@ export function Sheets() {
       <Sheet open={sheet === 'move-log'} onClose={closeSheet} title="Moves">
         <MoveLog compact />
       </Sheet>
+      <HowToPlaySheet open={sheet === 'how-to-play'} onClose={closeSheet} />
       <RoomInfoSheet open={sheet === 'room-info'} onClose={closeSheet} />
       <LeaveSheet open={sheet === 'leave-confirm'} onClose={closeSheet} />
     </>
@@ -103,6 +106,15 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           onChange={() => prefs.toggle('haptics')}
         />
 
+        {/*
+          Mid-game is exactly when someone asks what the three win conditions
+          are, and until now the only answer lived on a screen you could not get
+          back to.
+        */}
+        <Button block onClick={() => openSheet('how-to-play')}>
+          How you win
+        </Button>
+
         {room && inGame ? (
           // Below xl the log has no rail, so this is its only route. Without it
           // the feature would be built and unreachable, which is the state it
@@ -133,6 +145,15 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           </Button>
         ) : null}
       </div>
+    </Sheet>
+  );
+}
+
+function HowToPlaySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const room = useNet((s) => s.room);
+  return (
+    <Sheet open={open} onClose={onClose} title="How you win">
+      <HowToPlay twoPlayer={isTwoPlayerVariant(room)} />
     </Sheet>
   );
 }

@@ -104,16 +104,22 @@ export function RingGlyph({
  * -------------------------------------------------------------------------- */
 
 /**
- * How many rings of each size a player still holds.
+ * How many rings of each size a colour still holds.
  *
- * This is the single most strategically important thing on screen after the
- * board itself -- in Otrio you block by size, and "can Bo still play a large?"
- * decides most turns. So it is shown for *everyone*, always, as three columns
- * of three pips rather than as numbers: three marks can be counted at a glance
- * from across a table, where "2" has to be read.
+ * Numbers, not pips. Three marks really are countable at a glance -- that was
+ * the original argument and it holds for three. It does not hold for what this
+ * actually renders: nine pips per colour, and in the official two-player game a
+ * seat owns two colours, so one player's trays came to eighteen glyphs and a
+ * four-player rail to thirty-six. At that density you are not counting, you are
+ * estimating, on the one readout the game is decided by.
  *
- * The numeric form is what the screen reader gets, because counting pips is
- * exactly the wrong job for a screen reader.
+ * So each size shows its ring once, at its true relative diameter, with the
+ * count beside it. The ring still carries the size (and the optional S/M/L
+ * letter); the digit carries the quantity. Tabular figures so the column does
+ * not jitter as counts change.
+ *
+ * The numeric form was always what the screen reader got. This makes the two
+ * agree instead of maintaining a second visual language beside it.
  */
 export function ReserveTray({
   reserve,
@@ -138,15 +144,18 @@ export function ReserveTray({
       aria-label={`${who}: ${summary} rings left`}
     >
       {PIECE_SIZES.map((pieceSize) => (
-        <div className="o-tray__col" key={pieceSize}>
-          {[0, 1, 2].map((i) => (
-            <RingGlyph
-              key={i}
-              size={pieceSize}
-              state={i < reserve[pieceSize] ? 'held' : 'spent'}
-              showLetter={showLetters && i === 0}
-            />
-          ))}
+        <div
+          className={cx('o-tray__size', reserve[pieceSize] === 0 && 'is-empty')}
+          key={pieceSize}
+        >
+          <RingGlyph
+            size={pieceSize}
+            state={reserve[pieceSize] === 0 ? 'spent' : 'held'}
+            showLetter={showLetters}
+          />
+          <span className="o-tray__count u-tabular" aria-hidden="true">
+            {reserve[pieceSize]}
+          </span>
         </div>
       ))}
     </div>

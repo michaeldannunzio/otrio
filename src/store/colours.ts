@@ -66,14 +66,22 @@ export function firstColourOfSeat(seat: Seat): PlayerColor | null {
  * The second colour a seat picks up **if the game starts with exactly two
  * players**, or `null` for a seat that would not exist in that game.
  *
- * Also deterministic: `TWO_PLAYER_COLOR_PAIRS` is fixed by the rulebook artwork
+ * Deterministic: `TWO_PLAYER_COLOR_PAIRS` is fixed by the rulebook artwork
  * (purple+green against red+blue) and the engine never varies it. So a lobby
  * can name this colour rather than hedging with a count -- "+ green if only two
  * play" rather than "+1", which next to a seat number reads as a score anyway.
+ *
+ * The explicit `0 | 1` guard is the point of this function, not ceremony.
+ * `TWO_PLAYER_COLOR_PAIRS` has two entries because a two-player game has two
+ * seats, so seats 2 and 3 have no answer here and the honest reply is `null`.
+ * This used to read `TWO_PLAYER_COLOR_PAIRS[seat] as readonly number[]`, which
+ * compiled for every seat and was right for half of them -- the same shape as
+ * `reserves[seat]`, and invisible for the same reason: a cast, like a plain
+ * index signature, accepts values the data does not have.
  */
 export function secondColourIfTwoPlay(seat: Seat): PlayerColor | null {
-  const pair = TWO_PLAYER_COLOR_PAIRS[seat] as readonly number[] | undefined;
-  const second = pair?.[1];
+  if (seat !== 0 && seat !== 1) return null;
+  const second = TWO_PLAYER_COLOR_PAIRS[seat][1];
   return isPlayerColour(second) ? second : null;
 }
 
