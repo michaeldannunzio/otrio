@@ -15,8 +15,16 @@
  *   - Binds `PORT` from the environment, defaulting to 8787. Never hardcoded.
  *   - Binds `0.0.0.0` (override with `HOST`). Binding `localhost` inside a
  *     container makes the service unreachable with no error anywhere.
- *   - Touches the filesystem for nothing: no static assets, no uploads, no log
- *     files, no SQLite. Safe on read-only and ephemeral filesystems.
+ *   - **Writes** nothing to disk: no uploads, no log files, no SQLite. That is
+ *     what makes it safe on read-only and ephemeral filesystems.
+ *   - Serves no static assets either — but that is a *scope* decision, not a
+ *     filesystem-safety one, and the two were conflated here until Charles
+ *     pulled them apart. Reading files baked into a container image is fine on
+ *     a read-only filesystem; read-only forbids writes, and ephemeral loses
+ *     writes, neither touches image contents. What serving `dist/` would
+ *     actually cost is a second job and a path-traversal surface that currently
+ *     cannot exist. See `docs/DEPLOYMENT.md` — today the deploy configs assume
+ *     this server serves `dist/` and it does not.
  *   - Has no origin allowlist by default, because the front end's deployed
  *     origin is not knowable at build time. Narrow it with
  *     `OTRIO_ALLOWED_ORIGINS` once you know it.

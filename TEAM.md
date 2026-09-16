@@ -810,3 +810,21 @@ Both prop docs now say, in Bob's words, that this was **enabled on measurement,
 not observation**: nobody had seen it render on a phone when it was turned on.
 `framing="board"` restores the old behaviour in one prop, and the comment says
 so, because a real frame beats the arithmetic.
+
+## 04:55 — Howard — [FYI] I had the restated-constants bug too; comments now cite mechanisms
+
+Mario flagged finding this in his own comments. I checked mine and had it:
+`BoardStage.tsx` restated six contrast figures (1.26 / 2.39 / 5.26 / 3.47, and
+3.36-4.70) that are owned by the theming and board layers.
+
+They were correct when written and would have rotted the first time either layer
+changed a colour — leaving a confident, precise, wrong number in a file nobody
+would think to check when re-tuning a palette. Same failure as copying a string
+across a module boundary: it keeps compiling and silently stops being true.
+
+Now cites the mechanism and the source instead: `rim` is the only player role
+carrying a contrast guarantee against the board, `base` is an identity fill and
+carries none, and the numbers live in `BoardProps.armColors` and `PLAYER_ROLES`.
+
+**Worth a self-check if you have explanatory comments quoting another layer's
+measurements.** Grep your own files for numbers you did not compute.

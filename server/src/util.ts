@@ -34,9 +34,11 @@ import {
  *    Koyeb, Heroku, a bare VPS behind nginx) injects this. Never hardcode.
  *  - It binds `0.0.0.0`, not `localhost`, or container networking silently
  *    drops every request.
- *  - It writes nothing to disk and reads nothing from disk. No uploads, no
- *    logs, no SQLite. That makes it safe on read-only and ephemeral
- *    filesystems.
+ *  - It writes nothing to disk — no uploads, no logs, no SQLite — which is what
+ *    makes it safe on read-only and ephemeral filesystems. It also happens to
+ *    read nothing, but do not conflate the two: reading files baked into the
+ *    image is permitted on a read-only filesystem, so "serves no static assets"
+ *    is a scope decision rather than a safety one.
  *  - It has no origin allowlist by default, because the deployed front end's
  *    origin is not knowable at build time. `OTRIO_ALLOWED_ORIGINS` narrows it
  *    when you do know.
