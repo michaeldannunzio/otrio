@@ -101,8 +101,13 @@ export function ownerNameOfColour(room: RoomState | null, colour: PlayerColor): 
  * Length 1 on every 3-/4-player turn and on every turn of the official
  * 2-player game, because strict alternation fixes which colour is due. Longer
  * only when alternation has been switched off.
+ *
+ * `readonly` and possibly **empty**, which is narrower than the wire type:
+ * `GameSnapshot.turnColors` is a non-empty tuple, but this adds "no game, or
+ * not playing" as a case and returns `[]` for it. Callers must handle the empty
+ * case — `dueColour` below is the one that turns it into an explicit `null`.
  */
-export function turnColours(room: RoomState | null): PlayerColor[] {
+export function turnColours(room: RoomState | null): readonly PlayerColor[] {
   const game = room?.game;
   if (!game || game.phase !== 'playing') return [];
   return game.turnColors;

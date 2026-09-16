@@ -818,7 +818,7 @@ export function toGameSnapshot(g: EngineState): GameSnapshot {
     reserves,
     colorsInPlay: [...g.config.colorsInPlay] as PlayerColor[],
     turn: g.currentSeat,
-    turnColors: [...g.playableColors] as PlayerColor[],
+    turnColors: toTurnColors(g.playableColors),
     phase: g.status === 'playing' ? 'playing' : 'finished',
     winner,
     winnerColor,
@@ -840,6 +840,22 @@ export function toGameSnapshot(g: EngineState): GameSnapshot {
 
 function toReserve(r: Record<EngineSize, number>): Reserve {
   return { small: r.small, medium: r.medium, large: r.large };
+}
+
+/**
+ * Narrow the engine's `playableColors` to the wire's non-empty tuple.
+ *
+ * Safe by construction: `playableColors` originates as a `TurnSlot`'s `colors`,
+ * which is never empty (a slot with no colour could not be in the rotation),
+ * and `applyMove` carries it forward unchanged into both `'won'` and `'draw'`.
+ * So index 0 always exists, and the engine never produces more than two.
+ */
+function toTurnColors(due: readonly Color[]): GameSnapshot['turnColors'] {
+  return (
+    due.length > 1
+      ? [due[0] as PlayerColor, due[1] as PlayerColor]
+      : [due[0] as PlayerColor]
+  );
 }
 
 export function toWinningLine(l: EngineWinningLine, seat: Seat): WinningLine {

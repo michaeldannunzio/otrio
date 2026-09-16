@@ -279,12 +279,26 @@ export interface GameSnapshot {
   /**
    * The colours the seat in `turn` may place this turn.
    *
-   * Length 1 in every 3-/4-player game and on every turn of the official
+   * One entry in every 3-/4-player game and on every turn of the official
    * 2-player game, where strict alternation fixes which of the seat's two
-   * colours is due. The UI renders the piece about to be placed from this, and
-   * a `Move` may omit `color` exactly when this has one entry.
+   * colours is due. Two only if alternation is ever switched off. The UI
+   * renders the piece about to be placed from this, and a `Move` may omit
+   * `color` exactly when this has one entry.
+   *
+   * **Never empty**, which is why the type is a union of non-empty tuples
+   * rather than `PlayerColor[]`: `turnColors[0]` is always a real colour, and
+   * the compiler will not let anyone forget the two-colour case — the
+   * configuration where every bug in this project has lived. The guarantee
+   * comes from the engine, where `playableColors` originates as a `TurnSlot`'s
+   * `colors` (never empty) and is carried forward unchanged when the game ends.
+   *
+   * Once `phase` is `finished` it holds whatever the last mover was due and
+   * means nothing; read `winnerColor` instead.
+   *
+   * On the wire this is still a JSON array — the tuple is a compile-time
+   * constraint only, so nothing about the encoding changes.
    */
-  turnColors: PlayerColor[];
+  turnColors: readonly [PlayerColor] | readonly [PlayerColor, PlayerColor];
   phase: 'playing' | 'finished';
   /** The participant who won, or `null` while playing or on a draw. */
   winner: Seat | null;
