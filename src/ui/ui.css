@@ -516,22 +516,34 @@
 /* ─────────────────────────────── toasts ───────────────────────────────── */
 
 /*
- * Top-aligned, not bottom. On a phone the bottom third is the thumb zone and
- * holds the size picker -- the one control a player needs under time pressure --
- * so a toast that lands there covers exactly the wrong thing. The top edge is
- * also where the connection banner lives, which keeps all transient status in
- * one place.
+ * Below the top HUD row, not at the top of the viewport.
+ *
+ * Both halves of this were learned the hard way. Toasts started at the bottom,
+ * where they covered the size picker -- the one control a player needs under
+ * time pressure. Moving them to `top: 0` put them exactly where `.app-hud-top`
+ * puts the turn banner, since both are `position: fixed`: on a 412px phone a
+ * "player joined" toast covered the whole banner *and* the top player card for
+ * its full 3s, which is precisely the moment after a game starts when you most
+ * need to know whose turn it is. It hid the lobby heading and the entire
+ * no-WebGL explanation too.
+ *
+ * Trading an occluded control for occluded state is a downgrade, so: clear
+ * both. The offset is the stage's top padding plus the HUD row's height plus a
+ * gap. On screens with no HUD row (home, lobby) it simply starts lower, which
+ * also clears the connection banner and the screen heading.
  */
 .o-toasts {
   position: fixed;
   z-index: var(--z-toast);
   inset-inline: 0;
-  top: 0;
+  top: calc(
+    max(var(--safe-top), var(--hud-pad)) + var(--hit-min) + var(--hud-gap) + var(--space-2)
+  );
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  padding-top: max(var(--safe-top), var(--space-3));
+  padding-top: 0;
   pointer-events: none;
 }
 
@@ -850,59 +862,39 @@
   list-style: none;
 }
 
+/*
+ * A lobby seat, carrying its colour as a leading edge.
+ *
+ * Safe because lobby rows carry a real `u-player-N`: seat N's first colour is
+ * always N, fixed deterministically in `buildShape` (engine.ts), so the row can
+ * be coloured before the game starts. It briefly could not be — without a
+ * `u-player-N` on the row, `--player-current` falls back to its neutral default
+ * (accent) and paints every seat an identical stripe, which is worse than no
+ * colour at all because it looks like information.
+ *
+ * What the lobby still cannot know is how many colours a seat ends up with;
+ * that depends on the final player count. The row says so in words rather than
+ * guessing a second swatch.
+ */
 .o-seat {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--border-subtle);
+  border-inline-start: 4px solid var(--player-current);
   border-radius: var(--radius-md);
   background-color: var(--surface-1);
 }
 
-/*
- * A seat number, not a colour swatch.
- *
- * The lobby cannot show colours at all: `PlayerView.colors` is empty until the
- * game starts, because how many colours a seat gets depends on the final player
- * count. This rule used to carry `border-inline-start: 4px solid
- * var(--player-current)`, which with no `u-player-N` on the row resolved to the
- * neutral default -- accent -- and painted every seat the same pink stripe.
- */
-.o-seat__number {
-  display: grid;
-  place-items: center;
-  flex: none;
-  inline-size: 1.75rem;
-  block-size: 1.75rem;
-  border-radius: var(--radius-full);
-  background-color: var(--surface-3);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-bold);
-  font-variant-numeric: tabular-nums;
-}
-
-.o-seat--empty .o-seat__number {
-  background-color: transparent;
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-  color: var(--text-muted);
-}
-
+/* Dashed, so an unclaimed colour reads as available rather than taken. */
 .o-seat--empty {
   border-style: dashed;
-  border-inline-start-style: dashed;
   background-color: transparent;
   opacity: 0.75;
 }
 
 .o-seat.is-self { background-color: var(--surface-2); }
-
-.o-seat__badge {
-  flex: none;
-  font-size: var(--text-lg);
-  color: var(--player-current-ui);
-}
 
 .o-seat__badges { display: flex; gap: 2px; flex: none; }
 
@@ -1262,6 +1254,19 @@
 .o-seatbadge--sm { font-size: var(--text-2xs); }
 .o-seatbadge--lg { font-size: var(--text-md); }
 
+/*
+ * Shown but not claimed — an empty lobby seat. Hollow rather than filled, so it
+ * cannot be read as "this colour is taken": that seat's colour is only really
+ * its own if enough people play, and with exactly two it is absorbed as a
+ * seated player's second colour instead.
+ */
+.o-seatbadge--provisional {
+  background-color: transparent;
+  color: var(--player-current-ui);
+  box-shadow: inset 0 0 0 1px var(--player-current-rim);
+  opacity: 0.75;
+}
+
 /* ─────────────────────────── size picker ──────────────────────────────── */
 
 .o-sizes {
@@ -1355,19 +1360,40 @@
   font-weight: var(--weight-bold);
 }
 
+/*
+ * HUD TEXT RULE — no text in the HUD sits directly on the canvas.
+ *
+ * Every foreground token in `tokens.css` is contrast-checked against the app's
+ * *surfaces*. None of them is checked against the 3D board, and none could be:
+ * the backdrop there is a lit, textured, moving render whose luminance depends
+ * on the theme, the camera angle and which colour happens to be underneath.
+ * There is no such thing as a token that is safe against an arbitrary 3D
+ * background.
+ *
+ * So anything readable that floats over `.app-canvas` carries its own surface.
+ * `.o-sizes__hint` is the case that proved it: it is the primary instruction
+ * ("Pick a size, then a space") and it was the least legible text in the frame,
+ * while `.o-sizes__rule` one line below read cleanly for no reason other than
+ * having a pill behind it.
+ *
+ * `--surface-2` rather than `--surface-1` so the pills read as belonging to the
+ * control rather than as separate cards.
+ */
 .o-sizes__hint,
 .o-sizes__rule {
   margin: 0;
-  text-align: center;
-  font-size: var(--text-2xs);
-  color: var(--text-secondary);
-}
-
-.o-sizes__rule {
+  align-self: center;
+  max-width: 100%;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   background-color: var(--surface-2);
   color: var(--text-primary);
+  text-align: center;
+  font-size: var(--text-2xs);
+  text-wrap: balance;
+}
+
+.o-sizes__rule {
   font-weight: var(--weight-medium);
 }
 

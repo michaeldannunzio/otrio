@@ -184,7 +184,7 @@
   /* player 1 — purple (north) */
   --player-1: #7237b8;
   --player-1-ui: #7237b8;
-  --player-1-rim: #602f99;
+  --player-1-rim: #be85f8;
   --player-1-soft: #f5e9ff;
   --player-1-on-soft: #884bce;
   --player-1-on: #ffffff;
@@ -192,7 +192,7 @@
   /* player 2 — red (east) */
   --player-2: #e8501e;
   --player-2-ui: #c63100;
-  --player-2-rim: #c94b21;
+  --player-2-rim: #fd7749;
   --player-2-soft: #ffe9e2;
   --player-2-on-soft: #c93401;
   --player-2-on: #130400;
@@ -200,7 +200,7 @@
   /* player 3 — green (south) */
   --player-3: #a2d733;
   --player-3-ui: #517400;
-  --player-3-rim: #6e9a0c;
+  --player-3-rim: #81ac26;
   --player-3-soft: #eaf1d4;
   --player-3-on-soft: #537700;
   --player-3-on: #060900;
@@ -208,15 +208,15 @@
   /* player 4 — blue (west) */
   --player-4: #1cafd2;
   --player-4-ui: #00738c;
-  --player-4-rim: #2c98b5;
+  --player-4-rim: #67c8e6;
   --player-4-soft: #d3f3ff;
   --player-4-on-soft: #00768f;
   --player-4-on: #00090d;
 
   /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
   --scene-bg: #cbd3e0;
-  --board-base: #f0f3f8;
-  --board-line: #96a5ba;
+  --board-base: #453626;
+  --board-line: #8a6c47;
 
   /* shadow channels — composed into --shadow-1..5 below */
   --shadow-a: rgba(15, 20, 27, 0.06);
@@ -301,7 +301,7 @@
     /* player 1 — purple (north) */
     --player-1: #7237b8;
     --player-1-ui: #b877ff;
-    --player-1-rim: #a46dde;
+    --player-1-rim: #be85f8;
     --player-1-soft: #473754;
     --player-1-on-soft: #d9b0ff;
     --player-1-on: #ffffff;
@@ -309,7 +309,7 @@
     /* player 2 — red (east) */
     --player-2: #e8501e;
     --player-2-ui: #ff6430;
-    --player-2-rim: #ef6b3e;
+    --player-2-rim: #fd7749;
     --player-2-soft: #583529;
     --player-2-on-soft: #ffad90;
     --player-2-on: #130400;
@@ -317,7 +317,7 @@
     /* player 3 — green (south) */
     --player-3: #a2d733;
     --player-3-ui: #a2d733;
-    --player-3-rim: #bbe660;
+    --player-3-rim: #81ac26;
     --player-3-soft: #384122;
     --player-3-on-soft: #9dd22d;
     --player-3-on: #060900;
@@ -325,15 +325,15 @@
     /* player 4 — blue (west) */
     --player-4: #1cafd2;
     --player-4-ui: #1cafd2;
-    --player-4-rim: #5bbddb;
+    --player-4-rim: #67c8e6;
     --player-4-soft: #004454;
     --player-4-on-soft: #52d0f4;
     --player-4-on: #00090d;
 
     /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
     --scene-bg: #090c11;
-    --board-base: #232b38;
-    --board-line: #4e5c72;
+    --board-base: #3f3123;
+    --board-line: #6b5336;
 
     /* shadow channels — dark UIs read depth from a lit top edge, not just a
      cast shadow, so --shadow-hi becomes visible here */
@@ -394,7 +394,7 @@
   /* player 1 — purple (north) */
   --player-1: #7237b8;
   --player-1-ui: #b877ff;
-  --player-1-rim: #a46dde;
+  --player-1-rim: #be85f8;
   --player-1-soft: #473754;
   --player-1-on-soft: #d9b0ff;
   --player-1-on: #ffffff;
@@ -402,7 +402,7 @@
   /* player 2 — red (east) */
   --player-2: #e8501e;
   --player-2-ui: #ff6430;
-  --player-2-rim: #ef6b3e;
+  --player-2-rim: #fd7749;
   --player-2-soft: #583529;
   --player-2-on-soft: #ffad90;
   --player-2-on: #130400;
@@ -410,7 +410,7 @@
   /* player 3 — green (south) */
   --player-3: #a2d733;
   --player-3-ui: #a2d733;
-  --player-3-rim: #bbe660;
+  --player-3-rim: #81ac26;
   --player-3-soft: #384122;
   --player-3-on-soft: #9dd22d;
   --player-3-on: #060900;
@@ -418,15 +418,15 @@
   /* player 4 — blue (west) */
   --player-4: #1cafd2;
   --player-4-ui: #1cafd2;
-  --player-4-rim: #5bbddb;
+  --player-4-rim: #67c8e6;
   --player-4-soft: #004454;
   --player-4-on-soft: #52d0f4;
   --player-4-on: #00090d;
 
   /* 3D scene — mirrored in tokens.ts for three.js, which cannot read CSS vars */
   --scene-bg: #090c11;
-  --board-base: #232b38;
-  --board-line: #4e5c72;
+  --board-base: #3f3123;
+  --board-line: #6b5336;
 
   /* shadow channels — dark UIs read depth from a lit top edge, not just a
      cast shadow, so --shadow-hi becomes visible here */

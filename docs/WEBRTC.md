@@ -133,8 +133,29 @@ Transport: WebSocket. Messages: JSON, one object per frame.
 | `{t:'peer-join', peer}` | Someone arrived. |
 | `{t:'peer-leave', peer, reason?}` | Someone left. |
 | `{t:'signal', from, data}` | A relayed blob. |
-| `{t:'error', code, message}` | `room-full`, `bad-room`, `rate-limited`, … |
+| `{t:'error', error: WireError, fatal}` | See below. Same frame the game socket uses. |
 | `{t:'pong', ts}` | Keepalive reply. |
+
+#### The error frame
+
+It is `ErrorMsg` from `protocol.ts` — deliberately the same shape as the game
+socket's, so there is one error vocabulary in the app rather than two that can
+drift. `error.code` is an `ErrorCode`; `error.retryable` is `!fatal`.
+
+| Condition | `error.code` | `fatal` | Socket |
+|---|---|---|---|
+| Room already has 4 peers | `ROOM_FULL` | true | closed, 4003 |
+| Malformed/empty room code or peer id | `CODE_INVALID` | true | closed, 4003 |
+| `signal` before `join`, or room vanished | `PROTOCOL_MISMATCH` | true | closed, 4003 |
+| Too many frames | `RATE_LIMITED` | false | stays open |
+| Unknown type, bad JSON, oversize | `INTERNAL` | false | stays open |
+
+**`fatal` is stated by the server, never inferred by the client.** That is the
+whole point of the field. An earlier design had the client decide fatality from
+a hardcoded list of codes, which meant a server that learned a new terminal
+condition had no way to say so and the client would retry it forever. On
+`fatal: true` the server also closes the socket; the client must treat the frame
+as the reason and not the close as a fresh failure to retry.
 
 ### The requirements that actually matter
 
@@ -145,6 +166,19 @@ These are the ones a naive implementation gets wrong:
    to. It cannot be a client clock (phones disagree) and it cannot be derived
    from the peer id (random ids elect a random player). Preserving it across a
    rejoin is what stops a host whose WebSocket blipped from losing seniority.
+
+   **Preserved across a real disconnect, not just a replaced socket.** This is
+   the subtle part, and the reference implementation that used to live in this
+   document got it wrong: it held `order` inside the peer record and deleted
+   that record on socket close, so seniority survived a socket being swapped
+   while still open but not an actual drop — precisely the case the requirement
+   exists for. A host whose Wi-Fi blinked came back with a fresh, higher `order`
+   and silently stopped being the host. Keep the order map for the room's
+   lifetime, separately from the live peer set.
+
+   For the same reason, **do not delete a room the instant it empties.** Two
+   peers on one Wi-Fi drop together, both reconnect into a brand-new room, and
+   swap seniority. Hold an emptied room briefly (the live server uses 60s).
 
 2. **Peer ids are client-generated. Do not mint your own.** They are the
    players' `PlayerId`s, and the rest of the stack depends on there being
@@ -170,94 +204,38 @@ These are the ones a naive implementation gets wrong:
    `RTCPeerConnection`, and a page served over HTTPS cannot open a plaintext
    WebSocket anyway.
 
-### Reference implementation
+7. **Route by path, and refuse everything else at the upgrade.** `/signal` is
+   the relay; `/` and `/ws` are the game socket. A server that accepts any path
+   and treats it as a game socket will answer signalling frames with `INTERNAL`,
+   which is indistinguishable from a working relay right up until the first
+   error — a missing feature presenting as a runtime bug. Refusing unknown paths
+   with a 404 at upgrade turns that into an immediate, unambiguous failure.
 
-About ninety lines. It belongs in `server/src/` — which the hosted backend owns,
-so this is here for them to lift rather than as a file of its own.
+8. **Give the relay its own payload cap.** SDP offers carrying a full candidate
+   list are far larger than any game message; the live server allows 64 KB on
+   `/signal` against 4 KB on the game socket. In `ws`, `maxPayload` is per
+   `WebSocketServer`, so this means a second instance rather than a bigger
+   number.
 
-```js
-import { WebSocketServer } from 'ws';
+9. **A `signal` addressed to a departed peer is dropped silently, not an
+   error.** Departure races every normal disconnect; erroring on it would make
+   routine leaves look like faults. The sender learns from `peer-leave`.
 
-const rooms = new Map(); // code -> { peers: Map<id, {ws, name, order}>, next: number }
-const MAX_PEERS = 4;
+### The implementation
 
-const wss = new WebSocketServer({ port: process.env.PORT ?? 8787, path: '/signal' });
+It lives in **`server/src/signal.ts`**, mounted at `/signal` on the same Node
+process as the game socket. That is the canonical implementation; this document
+is the contract it satisfies, not a second copy of it.
 
-wss.on('connection', (ws) => {
-  let room = null, id = null;
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+There used to be a ~90-line reference implementation here. It is gone on
+purpose. It had the `order` bug described above, and keeping a parallel
+implementation in a document guarantees the two drift — the document is where
+the drift is hardest to notice, because nothing fails when it goes stale.
 
-  ws.on('message', (raw) => {
-    let m; try { m = JSON.parse(raw); } catch { return; }
-
-    if (m.t === 'join') {
-      const code = String(m.room ?? '').toUpperCase().slice(0, 24);
-      if (!code || typeof m.peer !== 'string' || m.peer.length > 64) {
-        return ws.send(JSON.stringify({ t: 'error', code: 'bad-room', message: 'bad join' }));
-      }
-      let r = rooms.get(code);
-      if (!r) rooms.set(code, (r = { peers: new Map(), next: 0 }));
-
-      const existing = r.peers.get(m.peer);
-      if (!existing && r.peers.size >= MAX_PEERS) {
-        return ws.send(JSON.stringify({ t: 'error', code: 'room-full', message: 'room is full' }));
-      }
-      // A repeat join from a known id is a RESUME: keep `order`, replace the
-      // socket, and stay quiet so the other peers do not tear anything down.
-      const order = existing ? existing.order : r.next++;
-      if (existing && existing.ws !== ws) { try { existing.ws.close(4001, 'replaced'); } catch {} }
-      r.peers.set(m.peer, { ws, name: m.name, order });
-      room = code; id = m.peer;
-
-      const others = [...r.peers].filter(([pid]) => pid !== id)
-        .map(([pid, p]) => ({ id: pid, name: p.name, order: p.order }));
-      ws.send(JSON.stringify({ t: 'welcome', room: code, you: id, order, peers: others }));
-      if (!existing) {
-        broadcast(r, id, { t: 'peer-join', peer: { id, name: m.name, order } });
-      }
-      return;
-    }
-
-    if (!room || !id) return;                       // nothing before join
-    const r = rooms.get(room);
-    if (!r) return;
-
-    if (m.t === 'signal' && typeof m.to === 'string') {
-      const target = r.peers.get(m.to);
-      if (target) target.ws.send(JSON.stringify({ t: 'signal', from: id, data: m.data }));
-    } else if (m.t === 'ping') {
-      ws.send(JSON.stringify({ t: 'pong', ts: m.ts }));
-    } else if (m.t === 'leave') {
-      ws.close(1000, 'left');
-    }
-  });
-
-  ws.on('close', () => {
-    const r = room && rooms.get(room);
-    if (!r) return;
-    // Only forget this peer if the socket closing is still the current one —
-    // otherwise a resume would delete the peer it just replaced.
-    if (r.peers.get(id)?.ws !== ws) return;
-    r.peers.delete(id);
-    broadcast(r, id, { t: 'peer-leave', peer: id, reason: 'disconnected' });
-    if (r.peers.size === 0) rooms.delete(room);
-  });
-});
-
-function broadcast(r, exceptId, msg) {
-  const s = JSON.stringify(msg);
-  for (const [pid, p] of r.peers) if (pid !== exceptId) { try { p.ws.send(s); } catch {} }
-}
-
-// Intermediaries drop idle WebSockets. Ping at the protocol level too.
-setInterval(() => {
-  for (const c of wss.clients) {
-    if (!c.isAlive) { c.terminate(); continue; }
-    c.isAlive = false; try { c.ping(); } catch {}
-  }
-}, 30_000).unref();
-```
+If you are porting the relay somewhere else — a Cloudflare Durable Object, Deno
+Deploy — read `server/src/signal.ts` and the nine requirements above. The whole
+thing is a room map, an order map, and a `switch` on four message types; the
+requirements are the hard part, not the code.
 
 ### Where to put it
 
@@ -269,11 +247,11 @@ game only works while your machine is on, and you have ruled that out.
 | **Fly.io / Render / Railway** | Simplest. One tiny always-on instance. Watch for free tiers that sleep — a cold start looks exactly like a broken game. |
 | **Deno Deploy** | Native WebSocket support, generous free tier, no container to babysit. |
 | **Cloudflare Workers + Durable Objects** | Best fit architecturally: one Durable Object per room code gives you the room map for free. Workers alone are not enough — a stateless Worker cannot fan out to other sockets. |
-| **The same service as the hosted backend** | See below. |
+| **The same service as the hosted backend** | **What we actually do.** See below. |
 
-**The honest note:** the hosted backend already needs a deployed Node + `ws`
-service. Adding a `/signal` route to it costs nothing. So peer-to-peer does not
-save you a deployment — you would run the same box either way. What it actually
+**The honest note, now settled by construction:** the hosted backend already
+needs a deployed Node + `ws` service, and `/signal` is mounted on it. So
+peer-to-peer does not save you a deployment — you would run the same box either way. What it actually
 buys you is that the box never sees game state, never scales with game activity,
 and can be the cheapest thing you can find. If the argument for P2P in your head
 was "then I don't need a server", that argument is wrong. The remaining
@@ -585,9 +563,14 @@ machine is correct", never "this works".
 
 ### Tier 1 — real signalling, one machine
 
-Run the reference server locally, point two different browsers (not two tabs) at
-`ws://localhost:8787/signal`. Confirms your signalling deployment is correct
-before any phone is involved.
+Run the server (`npm run server`) and point two different browsers — not two
+tabs — at it. `/signal` is mounted on the same process as the game socket, so
+this is one command. Confirms the relay works before any phone is involved.
+
+If `createRoom` rejects with `SIGNALING_FAILED`, read the message: it carries
+whatever the server actually said, so "unknown message type" means you reached
+something that is not the relay, while a connection failure means nothing is
+listening on that path at all.
 
 ### Tier 2 — real phones, same Wi-Fi
 

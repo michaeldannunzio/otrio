@@ -13,8 +13,8 @@
  *     "put me in room QUIET-FOX-12"  ->  "you are peer p_a1b2, here's who else is here"
  *     "relay this opaque blob to p_c3d4"  ->  p_c3d4 receives it
  *
- * That is the whole contract. See docs/WEBRTC.md for a reference implementation
- * (about 90 lines of Node + `ws`) and deployment notes.
+ * That is the whole contract. `docs/WEBRTC.md` specifies it; `server/src/signal.ts`
+ * implements it, mounted at `/signal` beside the game socket.
  *
  * IMPORTANT: the signalling connection must stay open for the whole session,
  * not just during the initial handshake. It is needed again for:
@@ -110,30 +110,34 @@ export type SignalServerMsg =
   | { t: 'pong'; ts: number };
 
 /**
- * Two accepted error shapes.
+ * The error frame — `ErrorMsg` from `protocol.ts`, the same shape the game
+ * socket uses. Agreed with the server side and live; there is no second shape.
  *
- * The nested one is `ErrorMsg` from `protocol.ts` — the same frame the game
- * socket uses — and is what the server sends. It is the one to write new code
- * against: it carries `fatal` explicitly, so the server can say "stop retrying"
- * instead of the client guessing from a hardcoded list of codes.
+ * `fatal` is stated by the server rather than inferred by the client. That is
+ * the point of it: a server that learns a new fatal condition can say so, where
+ * a client guessing from a hardcoded list of codes would spin forever on
+ * anything it did not recognise.
  *
- * The flat one is this module's original spelling, kept only until the server
- * side is confirmed. Being liberal here is deliberate and is confined to this
- * one frame type: the error frame is the path that reports every *other*
- * failure, so failing to parse it converts a clear server message into silence.
- * That exact mismatch is what made a signalling failure present as an
- * indefinite "Opening the room…" spinner with `undefined` in the log.
+ * On `fatal: true` the server also closes the socket (4003). Do not treat that
+ * close as a separate failure worth retrying — the error frame is the reason.
  */
-export type SignalErrorMsg =
-  | { t: 'error'; error: { code?: string; message?: string; retryable?: boolean }; fatal?: boolean }
-  | { t: 'error'; code?: SignalErrorCode | string; message?: string };
+export type SignalErrorMsg = {
+  t: 'error';
+  error: { code?: string; message?: string; retryable?: boolean };
+  fatal?: boolean;
+};
 
+/**
+ * Codes the signalling relay actually sends, as `ErrorCode` from `protocol.ts`.
+ * `duplicate-peer` is deliberately absent: a repeat `join` from a known id is
+ * always a resume, so there is no condition left for it.
+ */
 export type SignalErrorCode =
-  | 'room-full'
-  | 'bad-room'
-  | 'duplicate-peer'
-  | 'rate-limited'
-  | 'server-error';
+  | 'ROOM_FULL'
+  | 'CODE_INVALID'
+  | 'PROTOCOL_MISMATCH'
+  | 'RATE_LIMITED'
+  | 'INTERNAL';
 
 /** An error frame, reduced to the four things a caller actually acts on. */
 export interface SignalError {
@@ -145,31 +149,35 @@ export interface SignalError {
 }
 
 /**
- * Codes that mean "this will never work": a full room does not empty, and a
- * malformed code does not become well-formed. Spelled in both vocabularies
- * because a server may answer in either until the shape is settled.
- *
- * Only consulted when the frame does not state `fatal` itself. An explicit
- * `fatal` from the server always wins.
+ * Fallback for a frame that omits `fatal`: codes meaning "this will never
+ * work" — a full room does not empty, a malformed code does not become
+ * well-formed. The live server always states `fatal`, and an explicit value
+ * always wins; this only stops an older or third-party relay from being
+ * retried forever.
  */
 const FATAL_SIGNAL_CODES: ReadonlySet<string> = new Set([
-  'room-full', 'bad-room', 'duplicate-peer',
   'ROOM_FULL', 'CODE_INVALID', 'ROOM_NOT_FOUND', 'PROTOCOL_MISMATCH', 'SEAT_TAKEN',
 ]);
 
 /**
- * Reduce any error frame to a `SignalError`.
+ * Reduce an error frame to a `SignalError`.
  *
- * Never returns a `message` of `undefined`: when the frame matches neither
- * shape it reports the raw JSON instead, because a diagnostic that prints
- * nothing costs the reader more time than no diagnostic at all.
+ * Tolerant on purpose, and only here: this is the path that reports every
+ * *other* failure, so a frame it cannot parse turns a clear server message into
+ * silence. It reads a flat `{code, message}` frame as well as the nested one,
+ * and when neither is present it reports the raw JSON — it never returns a
+ * `message` of `undefined`. A diagnostic that prints nothing costs the reader
+ * more time than no diagnostic at all, which is exactly what
+ * `signalling error: undefined` did.
  */
 export function normalizeSignalError(frame: unknown): SignalError {
   const f = (frame ?? {}) as Record<string, unknown>;
   const nested = f.error as Record<string, unknown> | undefined;
   const source = nested && typeof nested === 'object' ? nested : f;
 
-  const code = typeof source.code === 'string' && source.code ? source.code : 'server-error';
+  // Not a wire code: it marks a frame we could not read, so the log says so
+  // rather than attributing a code to a server that never sent one.
+  const code = typeof source.code === 'string' && source.code ? source.code : 'unparseable';
   const rawMessage = typeof source.message === 'string' ? source.message : '';
   const retryable = typeof source.retryable === 'boolean' ? source.retryable : !FATAL_SIGNAL_CODES.has(code);
   const fatal = typeof f.fatal === 'boolean' ? f.fatal : FATAL_SIGNAL_CODES.has(code);

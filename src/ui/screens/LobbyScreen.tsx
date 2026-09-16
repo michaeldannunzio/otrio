@@ -3,8 +3,10 @@ import { useEffect, useRef } from 'react';
 import {
   leaveRoom,
   openSeatCount,
+  playersNeededForSeat,
   playersBySeat,
   seatedCount,
+  secondColourIfTwoPlay,
   setReady,
   startCheck,
   startGame,
@@ -13,12 +15,12 @@ import {
   variantBadges,
 } from '../../store';
 import { MAX_PLAYERS } from '../../net/protocol';
-import type { PlayerView, Seat } from '../../net/protocol';
+import type { PlayerColor, PlayerView, Seat } from '../../net/protocol';
 import { describeError, describePeer, joinNames } from '../lib/copy';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Pill } from '../components/primitives';
 import { RoomCodeDisplay } from '../components/RoomCode';
-import { cx } from '../components/Ring';
+import { ColourBadge, colourClass, colourLabel, cx } from '../components/Ring';
 import { ConnectionDot } from '../hud/ConnectionDot';
 
 /**
@@ -92,25 +94,33 @@ export function LobbyScreen() {
                 player={player}
                 isSelf={player?.playerId === selfId}
                 isHostSeat={player?.playerId === room.hostPlayerId}
+                mayGetSecondColour={room.maxPlayers > 2 && seatedCount(room) === 2}
               />
             );
           })}
         </ul>
         {/*
-          The lobby deliberately shows NO game colours.
+          The lobby shows each seat's colour, and says so carefully.
 
-          `PlayerView.colors` is empty until the game starts, and that is the
-          protocol being careful rather than incomplete: how many colours a seat
-          gets depends on the final player count, so seat 1 is red in a
-          three-player game and red+blue in a two-player one. A lobby that
-          guessed would be wrong every time the last player joined or left, and
-          the wrongness would look like the game reassigning colours under you.
-          So seats are numbered here, and colour appears when it is real.
+          `PlayerView.colors` is empty until the game starts, and I originally
+          read that as "colour is unknowable here". It is narrower than that:
+          `buildShape` in engine.ts is fully deterministic and `referee.ts`
+          never passes a custom `colors` array, so **seat N's first colour is
+          always N** -- purple, red, green, blue. For two players the pairs are
+          [0,2] and [1,3], so seat 0 still starts purple and seat 1 still starts
+          red.
+
+          What is genuinely unknown in the lobby is the *count*: whether a seat
+          gets one colour or two, which depends on how many people end up
+          playing. So we state the colour, which cannot change, and hedge only
+          the second colour, which can.
         */}
         <p className="o-lobby__note">
-          {seatedCount(room) === 2
-            ? 'With two players you each take two opposite colours and switch between them every turn. Colours are dealt when the game starts.'
-            : 'Colours are dealt when the game starts.'}
+          {room.maxPlayers === 2
+            ? 'With two players you each take two opposite colours and switch between them every turn.'
+            : room.maxPlayers > 2 && seatedCount(room) === 2
+              ? 'If only two of you play, you will each get a second colour on the opposite arm.'
+              : 'Each seat plays the colour of its arm on the board.'}
         </p>
         {variantBadges(room).length > 0 ? (
           <ul className="o-variantBadges" aria-label="Optional rules in play">
@@ -207,24 +217,40 @@ function SeatRow({
   player,
   isSelf,
   isHostSeat,
+  mayGetSecondColour,
 }: {
   seat: Seat;
   player: PlayerView | null;
   isSelf: boolean;
   isHostSeat: boolean;
+  /** True while the final player count could still make this seat two-coloured. */
+  mayGetSecondColour: boolean;
 }) {
-  // Seat number, not a colour. See the note in LobbyScreen above.
-  const seatName = `Seat ${seat + 1}`;
+  // Seat N always starts on colour N -- deterministic in the engine, see the
+  // note in LobbyScreen. Only whether a *second* colour joins it is open.
+  const colour = seat as PlayerColor;
+  const seatName = `Seat ${seat + 1} — ${colourLabel(colour)}`;
+  const second = secondColourIfTwoPlay(seat);
 
   if (!player) {
+    /*
+     * An empty row must not present its colour as waiting for an occupant.
+     * A 4-player room with two people in it can still *start* with two, and
+     * `buildShape(2, …)` then hands colours 2 and 3 to the seated players as
+     * their second colours -- so "Seat 3 — Green, open" and "Seat 1 — Purple
+     * (+ green if only two play)" would be two halves of the same list
+     * contradicting each other. The badge is hollow and the colour is stated
+     * with the condition that makes it true.
+     */
+    const needed = playersNeededForSeat(seat);
     return (
-      <li className="o-seat o-seat--empty">
-        <span className="o-seat__number" aria-hidden="true">
-          {seat + 1}
-        </span>
+      <li className={cx('o-seat o-seat--empty', colourClass(colour))}>
+        <ColourBadge colour={colour} provisional />
         <span className="o-seat__body">
           <span className="o-seat__name">Open seat</span>
-          <span className="o-seat__meta">{seatName} — waiting for someone to join</span>
+          <span className="o-seat__meta">
+            {`Seat ${seat + 1} — ${colourLabel(colour)} if ${needed} or more play`}
+          </span>
         </span>
       </li>
     );
@@ -233,10 +259,10 @@ function SeatRow({
   const peer = describePeer(player.connection, player.forfeited);
 
   return (
-    <li className={cx('o-seat', isSelf && 'is-self', player.ready && 'is-ready')}>
-      <span className="o-seat__number" aria-hidden="true">
-        {seat + 1}
-      </span>
+    <li
+      className={cx('o-seat', isSelf && 'is-self', player.ready && 'is-ready', colourClass(colour))}
+    >
+      <ColourBadge colour={colour} />
       <span className="o-seat__body">
         <span className="o-seat__name">
           {player.name}
@@ -244,6 +270,15 @@ function SeatRow({
         </span>
         <span className="o-seat__meta">
           {seatName}
+          {/*
+            Name the second colour rather than counting it. It is as
+            deterministic as the first (the pairs are fixed at [0,2] and [1,3]),
+            so "+1" both understates what we know and, next to a seat number,
+            reads as a score.
+          */}
+          {mayGetSecondColour && second !== null
+            ? ` (+ ${colourLabel(second).toLowerCase()} if only two play)`
+            : ''}
           {isHostSeat ? ' — host' : ''}
         </span>
       </span>

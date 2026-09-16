@@ -8,6 +8,7 @@ import {
   armSize,
   autoArmSize,
   colourLabel,
+  coloursOfSeat,
   dueColour,
   reserveOfColour,
   turnColours,
@@ -49,15 +50,36 @@ export function SizePicker() {
     if (isMyTurn) autoArmSize();
   }, [isMyTurn, moveCount]);
 
-  if (seat === null || !room?.game) return null;
+  // Nothing to place once the game is over. Rendering on would show every size
+  // at zero -- a false statement about the board -- under a stale "wait for
+  // your turn", behind the result overlay.
+  if (seat === null || !room?.game || room.game.phase !== 'playing') return null;
+
   const note = alternationNote(room, seat);
   const offered = turnColours(room);
   const due = dueColour(room);
-  // The tray belongs to the COLOUR being placed. When the referee has left a
-  // real choice (alternation off) we show that choice first and fall back to
-  // whichever colour is currently armed.
-  const active = due ?? selectedColour ?? offered[0] ?? null;
-  const reserve = active === null ? { small: 0, medium: 0, large: 0 } : reserveOfColour(room, active);
+  const mine = coloursOfSeat(room, seat);
+  // A deliberate colour choice, but only if it is one of mine -- `selectedColour`
+  // is cleared between turns and must never resolve to an opponent's.
+  const armed = selectedColour !== null && mine.includes(selectedColour) ? selectedColour : null;
+
+  /*
+   * Whose tray this is: ALWAYS MINE.
+   *
+   * `dueColour(room)` is the colour due for whoever is to move, which is only
+   * my colour when it is my turn. Keying off it unconditionally meant that
+   * during someone else's turn this control -- the one under my thumb, the one
+   * a player reads as "mine" -- rendered *their* remaining pieces in *their*
+   * colour, unlabelled, beneath the words "Wait for your turn."
+   *
+   * Whose turn it is, and in which colour, is the turn banner's job and it does
+   * it unmissably. Everyone's reserves are already on screen in the player
+   * rail. So there is nothing to gain here and a genuine misreading to lose.
+   */
+  const active = isMyTurn ? (due ?? armed ?? mine[0] ?? null) : (armed ?? mine[0] ?? null);
+
+  const reserve =
+    active === null ? { small: 0, medium: 0, large: 0 } : reserveOfColour(room, active);
   const disabled = !isMyTurn || pendingMove !== null;
 
   // Tinted with the colour actually being placed, so the control the player is
@@ -109,13 +131,17 @@ export function SizePicker() {
         ))}
       </div>
       <p className="o-sizes__hint" id="size-hint">
-        {disabled
-          ? pendingMove
-            ? 'Placing your ring…'
-            : 'Wait for your turn.'
-          : due !== null && note
-            ? `Placing ${colourLabel(due)}. Pick a size, then a space.`
-            : 'Pick a size, then choose a space on the board.'}
+        {pendingMove
+          ? 'Placing your ring…'
+          : !isMyTurn
+            ? // Says whose tray this is, so the counts are never read as the
+              // current player's.
+              mine.length > 1 && active !== null
+              ? `Your ${colourLabel(active).toLowerCase()} rings. Wait for your turn.`
+              : 'Your rings. Wait for your turn.'
+            : due !== null && note
+              ? `Placing ${colourLabel(due)}. Pick a size, then a space.`
+              : 'Pick a size, then choose a space on the board.'}
       </p>
       {note && isMyTurn ? (
         // The rule, stated where it bites. A player holding a winning placement

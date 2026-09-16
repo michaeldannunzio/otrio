@@ -112,7 +112,8 @@ export interface RtcTransportConfig extends TransportConfig {
    * WebRTC cannot bootstrap itself: two phones cannot exchange an SDP offer
    * over a connection that does not exist yet. This is the irreducible server
    * in a "serverless" design. It is tiny — see `docs/WEBRTC.md` for the full
-   * contract and a reference implementation — but it is not optional.
+   * contract, and `server/src/signal.ts` for the implementation — but it is
+   * not optional.
    *
    * `broadcast:otrio` substitutes a BroadcastChannel between tabs of one
    * browser, which needs no server at all and is how you develop this without
@@ -621,7 +622,7 @@ export class RtcTransport implements Transport {
 
     this.connectPromise = (async () => {
       if (!supportsWebRTC()) {
-        throw this.fail(new TransportError('UNSUPPORTED', 'RTCPeerConnection is unavailable', { retryable: false }));
+        throw this.failTerminal(new TransportError('UNSUPPORTED', 'RTCPeerConnection is unavailable', { retryable: false }));
       }
       this.setStatus('connecting');
       this.quality = { ...this.quality, reconnectAttempts: 0 };
@@ -649,7 +650,7 @@ export class RtcTransport implements Transport {
   }
 
   async createRoom(options?: CreateRoomOptions): Promise<RoomCode> {
-    if (!supportsWebRTC()) throw this.fail(new TransportError('UNSUPPORTED', 'WebRTC is unavailable'));
+    if (!supportsWebRTC()) throw this.failTerminal(new TransportError('UNSUPPORTED', 'WebRTC is unavailable'));
     this.bindLifecycle();
     const code = mintRoomCode();
     this.setStatus('connecting');
@@ -675,11 +676,11 @@ export class RtcTransport implements Transport {
   }
 
   async joinRoom(code: RoomCode, options?: JoinRoomOptions): Promise<RoomCode> {
-    if (!supportsWebRTC()) throw this.fail(new TransportError('UNSUPPORTED', 'WebRTC is unavailable'));
+    if (!supportsWebRTC()) throw this.failTerminal(new TransportError('UNSUPPORTED', 'WebRTC is unavailable'));
     const normalized = normalizeRoomCode(code);
     // Checked locally so an obviously bad code costs nothing.
     if (!isPlausibleRoomCode(normalized)) {
-      throw this.fail(new TransportError('CODE_INVALID', `"${code}" is not a room code`));
+      throw this.failTerminal(new TransportError('CODE_INVALID', `"${code}" is not a room code`));
     }
     this.bindLifecycle();
     this.setStatus('connecting');
@@ -695,7 +696,7 @@ export class RtcTransport implements Transport {
     if (others.length === 0) {
       this.sig?.close();
       this.sig = null;
-      throw this.fail(new TransportError('ROOM_NOT_FOUND', `nobody is in room ${normalized}`));
+      throw this.failTerminal(new TransportError('ROOM_NOT_FOUND', `nobody is in room ${normalized}`));
     }
 
     this.refereeId = others[0].id;
@@ -807,6 +808,28 @@ export class RtcTransport implements Transport {
 
   private get isReferee(): boolean { return this.refereeId === this.identity.playerId; }
 
+  /**
+   * Why a direct connection probably failed, in terms someone can act on.
+   *
+   * The truthful technical answer is an ICE state, which means nothing to a
+   * player and little to whoever deployed this. The *actionable* answer is
+   * almost always TURN: without a relay, a real minority of networks cannot be
+   * traversed at all, and that is a configuration fix rather than bad luck.
+   * Saying so is the difference between "try again" and "add a TURN server".
+   *
+   * ICE internals stay in `getDiagnostics()`, which is where they belong.
+   */
+  private iceAdvice(): string {
+    const servers = this.rtcConfig.iceServers ?? [];
+    const hasTurn = servers.some((s) => {
+      const urls = typeof s.urls === 'string' ? [s.urls] : s.urls;
+      return urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
+    });
+    return hasTurn
+      ? 'a TURN relay is configured but no path through it worked — check the TURN credentials, or this network may block relays too'
+      : 'no TURN relay is configured, so networks that block direct peer-to-peer traffic cannot be used. Try mobile data, or switch to the hosted game.';
+  }
+
   /* ---------------------- signalling ---------------------- */
 
   private async openSignaling(code: RoomCode): Promise<void> {
@@ -868,7 +891,7 @@ export class RtcTransport implements Transport {
       // "cannot reach" is often flatly untrue: the socket opened fine and the
       // server rejected what we sent.
       const detail = err instanceof Error ? err.message : String(err);
-      throw this.fail(new TransportError(
+      throw this.failTerminal(new TransportError(
         'SIGNALING_FAILED',
         `signalling failed at ${this.signalingUrl}: ${detail}`,
         { retryable: true, cause: err },
@@ -966,9 +989,12 @@ export class RtcTransport implements Transport {
         if (l?.isHealthy) { clearInterval(iv); resolve(); return; }
         if (l?.state === 'failed' || Date.now() - started > budget) {
           clearInterval(iv);
-          reject(this.fail(new TransportError(
+          // Terminal: this rejection propagates out of joinRoom, so the UI must
+          // leave the connecting state as well as see the rejection.
+          this.note(`peer ${peer.slice(0, 6)} unreachable after ${budget}ms`);
+          reject(this.failTerminal(new TransportError(
             'PEER_UNREACHABLE',
-            `could not open a direct connection to ${peer.slice(0, 6)}`,
+            `could not open a direct connection: ${this.iceAdvice()}`,
             { retryable: true },
           )));
         }
@@ -1006,7 +1032,11 @@ export class RtcTransport implements Transport {
       }
     } else if (st === 'failed') {
       if (peer === this.refereeId && !this.isReferee) {
-        this.fail(new TransportError('PEER_UNREACHABLE', `lost the direct connection to the referee`, { retryable: true }));
+        this.fail(new TransportError(
+          'PEER_UNREACHABLE',
+          `lost the direct connection to the host: ${this.iceAdvice()}`,
+          { retryable: true },
+        ));
         this.onPeerGone(peer);
       } else if (this.isReferee) {
         this.referee?.setConnection(peer, 'reconnecting');
@@ -1571,6 +1601,20 @@ export class RtcTransport implements Transport {
     return err;
   }
 
+  /**
+   * Fail in a way the UI can render, for errors that end the current attempt.
+   *
+   * Rejecting the caller's promise is not enough on its own: the UI renders
+   * `status`, so leaving it on `connecting` after we have given up produces a
+   * spinner that never stops even though the promise settled — the same
+   * "settled but still spinning" bug in a different place. `failed` is
+   * recoverable: `connect`, `createRoom` and `joinRoom` all move out of it.
+   */
+  private failTerminal(err: TransportError): TransportError {
+    this.setStatus('failed');
+    return this.fail(err);
+  }
+
   private buildSnapshot(): TransportSnapshot {
     const view: { role: LocalRole; seat: Seat | null; isMyTurn: boolean; isHost: boolean } =
       deriveLocalView(this.room, this.identity.playerId);
@@ -1643,13 +1687,10 @@ export class RtcTransport implements Transport {
  */
 function signalErrorCode(code: string): ErrorCode {
   switch (code) {
-    case 'room-full':
     case 'ROOM_FULL': return 'ROOM_FULL';
-    case 'bad-room':
     case 'CODE_INVALID': return 'CODE_INVALID';
     case 'ROOM_NOT_FOUND': return 'ROOM_NOT_FOUND';
     case 'PROTOCOL_MISMATCH': return 'PROTOCOL_MISMATCH';
-    case 'rate-limited':
     case 'RATE_LIMITED': return 'RATE_LIMITED';
     default: return 'SIGNALING_FAILED';
   }

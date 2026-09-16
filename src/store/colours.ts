@@ -24,6 +24,7 @@
  *  - Colour `0` is purple and is falsy. Always `slot !== null`.
  */
 
+import { TWO_PLAYER_COLOR_PAIRS } from '../game/types';
 import { ALL_COLORS, MIN_PLAYERS, PLAYER_COLORS } from '../net/protocol';
 import type {
   GameSnapshot,
@@ -44,6 +45,49 @@ export function colourLabel(colour: PlayerColor | null | undefined): string {
   if (colour === null || colour === undefined) return 'No colour';
   const name = PLAYER_COLORS[colour];
   return name ? name[0].toUpperCase() + name.slice(1) : 'No colour';
+}
+
+/**
+ * The colour a seat starts on, knowable before the game begins.
+ *
+ * `buildShape` in engine.ts is deterministic and `referee.ts` never passes a
+ * custom `colors` array, so seat N always starts on colour N -- including in
+ * the two-player game, where the pairs are [0,2] and [1,3] and seat 0 still
+ * leads with purple.
+ *
+ * This is the one colour fact a lobby may state outright. Everything else about
+ * a seat's colours depends on the final player count.
+ */
+export function firstColourOfSeat(seat: Seat): PlayerColor | null {
+  return isPlayerColour(seat) ? seat : null;
+}
+
+/**
+ * The second colour a seat picks up **if the game starts with exactly two
+ * players**, or `null` for a seat that would not exist in that game.
+ *
+ * Also deterministic: `TWO_PLAYER_COLOR_PAIRS` is fixed by the rulebook artwork
+ * (purple+green against red+blue) and the engine never varies it. So a lobby
+ * can name this colour rather than hedging with a count -- "+ green if only two
+ * play" rather than "+1", which next to a seat number reads as a score anyway.
+ */
+export function secondColourIfTwoPlay(seat: Seat): PlayerColor | null {
+  const pair = TWO_PLAYER_COLOR_PAIRS[seat] as readonly number[] | undefined;
+  const second = pair?.[1];
+  return isPlayerColour(second) ? second : null;
+}
+
+/**
+ * How many players must start for this seat to hold its own colour.
+ *
+ * An empty lobby row is the awkward case: a 4-player room with two people in it
+ * can still *start* with two, and then colours 2 and 3 are absorbed as the
+ * seated players' second colours rather than belonging to seats 3 and 4. So an
+ * empty row must not present its colour as waiting for an occupant -- it is
+ * only that seat's colour if enough people play.
+ */
+export function playersNeededForSeat(seat: Seat): number {
+  return seat + 1;
 }
 
 /** How many people are seated. */

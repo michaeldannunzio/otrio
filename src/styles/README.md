@@ -84,7 +84,7 @@ Picking the wrong *role* is the other usual way a palette quietly fails, so they
 |---|---|---|---|
 | base | `--player-N` | 3D piece material, swatch fill. **The identity.** | — |
 | ui | `--player-N-ui` | HUD text, icons, thin strokes | ≥ 4.5:1 on every surface |
-| rim | `--player-N-rim` | Piece outline in the 3D scene | ≥ 3:1 against the board |
+| rim | `--player-N-rim` | Piece outline in the 3D scene | ≥ 3:1 against any board up to L* 34 |
 | soft | `--player-N-soft` | Chip / active-row background | — |
 | onSoft | `--player-N-on-soft` | Text on `soft` | ≥ 4.5:1 on `soft` |
 | on | `--player-N-on` | Text on `base` | ≥ 4.5:1 on `base` |
@@ -305,15 +305,38 @@ double-converts and the scene comes out washed out.
 
 **Two things that must not be skipped:**
 
-1. **Render the rim.** `players[i].rim` is an accessibility guarantee, not a style choice. No
-   single board colour can clear 3:1 against all four fills: the green piece on the light board is
-   1.53:1, and purple on the dark walnut is also 1.53:1. The rim clears 3:1 against the board for
-   every player in both themes, so it is what makes the silhouette perceivable. Use it as an
-   outline, a bevel edge, or the piece's underside.
+1. **Render the rim.** `players[i].rim` is an accessibility guarantee, not a style choice. The
+   purple piece's fill is only **1.63:1** against the bamboo board, so without a rim its silhouette
+   is not perceivable. (Red, green and blue fills clear 3:1 on their own against that board — purple
+   is the binding case, but the rim is guaranteed for all four.) Use it as an outline, a bevel edge,
+   or the piece's underside.
 
-   Dark-mode rims are derived against the **walnut** board (`#4a3a28`, L\* 25.7 — the lighter of
-   the two plausible boards), so they also clear 3:1 against the darker `--board-base` `#232b38`.
-   Measured: 3.02 / 3.55 / 7.58 / 5.06 on walnut; 3.95 / 4.64 / 9.90 / 6.61 on `--board-base`.
+   **Rims are identical in both themes.** The board is wood in both, and a piece is a physical
+   object — it does not repaint when the interface does. Only `ui`/`soft`/`onSoft`/`on` are
+   theme-dependent, because only those sit on a themed panel.
+
+   **They are derived against a ceiling, not against `--board-base`.** The set clears 3:1 against
+   any board up to **L\* 34** (`RIM_BOARD_CEILING_LSTAR`), so the scene can retint the board freely
+   within that envelope and the guarantee holds. Measured against the real `BOARD_TINTS`:
+
+   | board | L\* | purple | red | green | blue |
+   |---|---|---|---|---|---|
+   | `#3f3123` dark theme | 21.5 | 4.72 | 4.72 | 4.69 | 6.56 |
+   | `#453626` light theme | 23.8 | 4.37 | 4.37 | 4.35 | 6.07 |
+   | `#604d35` ceiling | 34.0 | 3.03 | 3.03 | 3.01 | 4.21 |
+
+   Two reasons for the headroom: the board is being lightened on request, and the **rendered** board
+   is lighter than its albedo hex because it is lit and tone-mapped while the rim is
+   `toneMapped: false`. Hex-vs-hex is optimistic; the margin absorbs that. To take the board above
+   L\* 34, the rims must be re-derived rather than reused.
+
+   All four rims sit at nearly one lightness (L\* 65/65/65/76) and that is not an oversight.
+   Contrast is a pure luminance function, so requiring all four to clear 3:1 against one board
+   *forces* one luminance — "every rim clears the board" and "rims differ in greyscale" are
+   mathematically opposed. The silhouette wins, because the rim is the silhouette channel and
+   identity is carried by the fill, the glyph and the finish ladder. In normal vision the rims are
+   still clearly distinct (min ΔE 31.6). Blue's is lifted by a second rule: a rim must also stay
+   visible against *its own* fill, and blue's fill is L\* 66.
 2. **Render the glyph.** `PLAYERS[i].glyph` (`● ▲ ■ ◆`) on the piece's top face. Colour separation
    is strong but it is never total — see the greyscale row below. This is the cheap redundancy that
    makes the design robust rather than statistically robust.
@@ -425,7 +448,7 @@ each theme (WCAG 2.1: 4.5:1 body text, 3:1 non-text).
 | `--border-strong` | 3.01 | 3.00 |
 | `--accent` | 4.51 | 4.52 |
 | player `ui` (worst of 4) | 4.51 | 4.51 |
-| player `rim` vs board | 3.00 | 3.02 |
+| player `rim` vs board (`BOARD_TINTS`) | 4.35 | 4.69 |
 | text on `soft` / on `base` | 4.50 | 5.36 |
 
 ### Player colour separation

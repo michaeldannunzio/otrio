@@ -216,6 +216,16 @@ export interface SceneProps {
   /** >1 pushes in past the storage arms. Animate it for a "focus on play" mode. */
   zoom?: number;
 
+  /**
+   * What the camera frames. 'auto' (default) keeps the whole cross while a
+   * playing space stays at least 72 CSS px across, and drops to the 3x3 playing
+   * area below that — which is every phone in portrait. The storage arms carry
+   * no gameplay (RULES.md §1.1) and the HUD already shows every reserve count
+   * per colour and per size, so nothing is lost and the board roughly doubles.
+   * `onFraming` reports the distance and `pxPerUnit` actually chosen.
+   */
+  framing?: 'board' | 'play' | 'auto';
+
   /** Force continuous rendering while something is moving. See the header. */
   animating?: boolean;
   /** Global override. 'demand' is the default and you should leave it alone. */
@@ -295,11 +305,12 @@ function RepaintOnTextureLoad() {
 interface SceneContentsProps
   extends Omit<
     SceneProps,
-    'seat' | 'theme' | 'zoom' | 'quality' | 'shadows' | 'frameloop' | 'animating' | 'className' | 'style' | 'onCreated'
+    'seat' | 'theme' | 'zoom' | 'framing' | 'quality' | 'shadows' | 'frameloop' | 'animating' | 'className' | 'style' | 'onCreated'
   > {
   seat: Seat;
   theme: ThemeMode;
   zoom: number;
+  framing: 'board' | 'play' | 'auto';
   quality: QualityTier;
   shadows: boolean;
 }
@@ -309,6 +320,7 @@ function SceneContents({
   theme,
   insets,
   zoom,
+  framing,
   quality: tier,
   shadows,
   armColors,
@@ -352,13 +364,14 @@ function SceneContents({
       <CameraRig
         insets={insets}
         zoom={zoom}
+        framing={framing}
         center={BOARD_BOUNDS.center}
         halfExtents={BOARD_BOUNDS.halfExtents}
         onFraming={onFraming}
         {...camera}
       />
 
-      <Table {...table} />
+      <Table theme={theme} {...table} />
 
       {/*
         The board frame. Everything in here turns together so that the local
@@ -398,6 +411,7 @@ export function Scene({
   theme = 'light',
   insets,
   zoom = 1,
+  framing = 'board',
   animating = false,
   frameloop,
   quality = 'auto',
@@ -469,6 +483,7 @@ export function Scene({
         theme={theme}
         insets={insets}
         zoom={zoom}
+        framing={framing}
         quality={tier}
         shadows={shadows}
         armColors={armColors}

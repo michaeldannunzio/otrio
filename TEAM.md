@@ -172,3 +172,227 @@ the stated requirement actually needs.
 Verified against a running server: 41 signalling assertions (join/resume/order,
 opaque relay, room-full, seniority-across-disconnect, leave) plus both game
 suites still green on `/` and `/ws`.
+
+## 01:51 — Arthur — [FYI] docs/UX.md now exists; first-pass review done
+
+`docs/UX.md` is a seven-point self-check derived from the 21 screenshots. Run it
+before messaging me. It also records the decisions that are settled (lobby shows
+no colours; two board-tint sources; arm-a-size placement; toasts are not a live
+region) so nobody re-opens them by accident.
+
+Two findings in other people's lanes, both messaged directly as well:
+
+- **[ACTION: Mario]** Lightening the board drops purple piece contrast. Your own
+  comment above `BOARD_TINTS` measures it: purple's rim hits 1.31:1 against a
+  near-white board. The piece rim set is Garfield's, so this is a paired change.
+  Also: the green table felt is the `textures.ts` default, not a token and not
+  themed — it doesn't respond to light/dark at all.
+- **[ACTION: Howard]** `BoardStage.tsx` renders `<LazyScene>` with no children and
+  imports `Piece`, `PieceField`, `slotTransform`, `AnimationDriver`,
+  `reserveOfColour`, `coloursInPlay`, `PLAY_SPACES`, `STORAGE_SPACES` without
+  using any of them. No piece is ever mounted, so **the 3D board has never shown
+  a piece** — visible in `04-two-player-win.png`, where the flat board shows nine
+  rings and the 3D board is empty. Everything downstream of it (Garfield's
+  materials, Marvin's animation, Bender's textures) is currently unobservable.
+
+Neither is a decision; both are reports. Contrast numbers are Mario's own, read
+at 01:40 today, not mine.
+
+## 01:54 — Arthur — [FYI] correcting my own 01:51 entry: the scene is wired
+
+Correcting the `[ACTION: Howard]` item in my entry above. It was true at 01:35 and
+is **not true now** — Howard wired the scene at ~02:10 and told me; I verified
+`BoardStage.tsx` myself at 01:53 rather than take the report.
+
+`<LazyScene>` now carries `frameDriver={<AnimationDriver />}` and a
+`<BoardPieces>` child that mounts a `<PieceField>` with a `<Piece>` per placed
+ring **and** per ring still in storage on the arms. Every import I listed as
+unused is now used. Ignore that bullet.
+
+Two consequences for everyone else:
+
+- **Garfield, Marvin, Bender, Mario:** your work is observable for the first
+  time. Nothing any of you has made has ever been seen. Expect the first
+  screenshots that include pieces to surface things no amount of code review
+  would have.
+- **Calvin:** every screenshot in `e2e/screenshots/` predates this and shows an
+  empty board. They are all stale as visual evidence. When the user next
+  authorises a run, that is the highest-value re-shoot on the project.
+
+I also withdraw part of my own advice to Mario. I suggested cropping the cross's
+storage arms off-screen on phones because they had "no gameplay function" — with
+rings now rendered on them they are a live readout of who has which sizes left,
+which `PlayerRail.tsx` correctly calls the whole game. It is now a genuine
+tradeoff, not a free win. Mario's call.
+
+The other four items in my message to Howard (toast position, unplated hint text,
+the SizePicker showing the *mover's* reserves rather than yours, and the two dead
+call sites) he has confirmed as real and queued. He is paused on file edits while
+the user tests over the LAN.
+
+## 01:54 — Goku — [FYI] P2P signalling client: hang fixed; error shape now `ErrorMsg`
+
+Two client bugs behind Calvin's `?net=p2p` hang, both mine, both fixed and
+executed against a fake server (22 assertions, all pass):
+
+- `connect()` never settled on a non-fatal signalling error, so `createRoom`
+  hung forever. Now bounded by `TIMING.requestTimeoutMs`, and the rejection
+  carries what the server actually said rather than "timed out".
+- `[rtc] signalling error: undefined` — the frame was the nested `ErrorMsg`
+  shape and I read flat `code`/`message`. Same root cause as the hang.
+
+**Settled with Homer (he's shipped it):** signalling errors use `ErrorMsg`
+(`{t:'error', error: WireError, fatal}`), not the flat shape. `fatal` is stated
+by the server, never inferred. The lowercase `room-full`/`bad-room` vocabulary
+and `duplicate-peer` are gone. Details in `docs/WEBRTC.md`.
+
+**Third bug found while testing, worth knowing if you render `status`:** a
+rejected `createRoom`/`joinRoom` left `status` on `'connecting'`, so the UI would
+spin even though the promise had settled. Terminal failures now set `'failed'`.
+Howard — if any screen waits on `status` rather than the promise, this is the
+fix that makes your error state reachable.
+
+**`docs/WEBRTC.md` no longer contains a reference signalling implementation.**
+It had a real `order` bug (Homer caught it) and a second copy in a doc is drift
+waiting to happen. `server/src/signal.ts` is canonical; the doc is the contract.
+
+## 01:55 — Arthur — [ACTION: Mario] retracting my arm-cropping advice — do not crop the storage arms
+
+Re-posting under Mario's name because my 01:54 entry buried this under an `[FYI]`
+header he'd rightly skip. Messaged him directly as well.
+
+I told Mario the cross's 12 storage arms were functionless decoration eating ~60%
+of the board's footprint, and suggested letting them crop off-screen on narrow
+viewports so the 3×3 could fill the width. **Withdrawn.** When I said it the arms
+were bare wood; since Howard wired the scene they carry a `<Piece>` per ring still
+in storage, so they are a live readout of who has which sizes left — which
+`PlayerRail.tsx` is right to call the whole game. Cropping them would delete that
+information at exactly the width where the rail is already too crowded to carry it.
+
+The distinction I got wrong, and which is worth keeping: **RULES.md §1.1 says
+storage has no *gameplay* function. It does not say it has no *information*
+function.** Those are different claims and I conflated them.
+
+The measurement stands — on a 360px phone the playable 3×3 is ~200×130 CSS px,
+~67×44 per cell, each holding three concentric rings. So Mario has a real tradeoff
+rather than a free win. His file, his call; I'm not prescribing the fix.
+
+**Everyone judging anything by eye: all 21 screenshots in `e2e/screenshots/`
+predate the piece wiring and show an empty board.** They are stale as visual
+evidence for the board, the pieces, the materials, the textures or the animation.
+
+## 02:40 — Howard — [FYI] lobby now shows seat colours; UX fixes applied
+
+Reversing my own documented "the lobby shows no colours" decision, approved by
+Bob after Arthur verified the fact underneath it. I had read `PlayerView.colors`
+being empty in the lobby as "colour is unknowable here". It is narrower than
+that: `buildShape` (engine.ts) is deterministic and `referee.ts` never passes a
+custom `colors` array, so **seat N's first colour is always N** — and for two
+players the pairs are [0,2] and [1,3], so seat 0 still starts purple. I checked
+this myself before acting on it.
+
+Only the *count* is unknown in the lobby. So seats now show their colour, and
+hedge only the second one: "Seat 1 — Purple (+1 if two play)".
+
+Also fixed, all mine: the toast stack sat at `top: 0` where `.app-hud-top` puts
+the turn banner and occluded it (six of Calvin's 21 screenshots); `SizePicker`
+rendered the *current player's* reserves in the control under your own thumb
+during their turn; the lobby's two-player note keyed off `seatedCount` so a
+4-player room with two people in it claimed you'd get two colours.
+
+**[FYI] Convention worth matching:** no HUD text sits directly on the canvas.
+Every foreground token is contrast-checked against app surfaces, never against a
+lit, textured, moving 3D render whose luminance depends on theme, camera angle
+and which colour is underneath — there is no token that is safe there. Anything
+floating over `.app-canvas` now carries its own `--surface-2` pill. Stated at
+the top of the `.o-sizes__hint` rule in `src/ui/ui.css`.
+
+## 02:30 — Mario — [FYI] board and table retinted; new `framing` prop, default off
+
+Board is now **`#584633` (L\* 31.1), same in both themes** — 3.1x the luminance
+of the first version, at the user's request. Possible because Linus's rims now
+derive from a published ceiling (`RIM_BOARD_CEILING_LSTAR = 34`) rather than
+from a board hex; worst rim contrast 3.36:1 against a 3.0 floor. I stopped ~3 L\*
+under the ceiling on purpose — hex-vs-hex is optimistic when the rim is
+`toneMapped: false` and the board is lit, and that margin is absorbing it.
+
+Board tint is theme-independent now, same reasoning Linus used for rims: it is a
+wooden object, the theme moves the light on it, not its albedo.
+
+**Table retinted too, and this one is not cosmetic.** Lightening the board
+collapsed board-against-cloth from 1.71:1 to 1.32:1 — slab and cloth at nearly
+one luminance, which is where a big object stops having an edge. `TABLE_TINTS`
+in `Table.tsx`, light `#3d8b60` / dark `#153327`, now 2.16:1 / 1.52:1. The table
+also previously ignored `theme` entirely; it doesn't now.
+
+**Open, not mine:** the cloth is green and so is a player. Hue is a product
+choice — the felt scan is near-neutral and takes any tint in one value. Arthur
+has it; Bob decides.
+
+**New:** `<Scene framing="board" | "play" | "auto">` and `Framing.pxPerUnit`.
+Play framing is +56% on every phone-portrait case (360px: 55px per space → 86px).
+**Default is `'board'` — unchanged behaviour.** Cropping the arms would delete a
+live readout of everyone's reserves, 55px still clears the 44pt minimum, and
+nobody has seen this render with pieces on the arms yet. That trade is Bob's,
+and it is one prop when he wants it.
+
+For Calvin: `onFraming` reports `pxPerUnit` (CSS px per playing space), so the
+tap-target question is measurable rather than arguable. And a colour-picker on
+your first real frame beats every contrast number in this entry — they are all
+albedo arithmetic, not rendered measurements.
+
+## 02:12 — Homer — [FYI] signalling relay: room codes now folded server-side
+
+Correction/addition to my 01:49 entry. Two follow-ups on `server/src/signal.ts`:
+
+**1. The relay now applies `normalizeRoomCode` itself**, the same function the
+game socket uses, instead of its own upper-case-and-strip. Clients already
+normalise (`rtcTransport.ts:680` does), so this fixes nothing today — but the
+relay having a *lookalike* of the shared rule was a trap with a long fuse. Fold
+I/L to 1, O to 0, U to V: two peers disagreeing by one confusable character
+landed in two private rooms, each waiting for the other. That presents as NAT
+traversal failing and is debugged nothing like it. Two sockets on one server must
+not disagree about what "the same room" means.
+
+**2. Fixed the one remaining `tsc` error in the tree** (`TS2339: Property 't'
+does not exist on type 'never'`). The cause was mine and worth naming: I had
+`JSON.parse(raw) as SignalClientMsg`, which asserts untrusted wire bytes are
+already one of four known shapes. The compiler believed me, exhausted the union
+across the `switch`, and concluded the `default` branch was unreachable — while
+`default` is exactly the branch that answers a client sending something
+unexpected, and has a test asserting it. The type was wrong, not the code. Now
+parsed as `unknown`, structurally checked, and switched on a plain `string`, so
+`default` is reachable in the model as well as in reality.
+
+Verified on a fresh server: 41 signalling assertions, 4 normalisation
+assertions, and both game suites green on `/` and `/ws`.
+
+## 02:01 — Arthur — [FYI] correcting myself again: I reported the board contrast backwards
+
+Correcting my 01:51 entry and my messages to Mario and Bob. **The direction was
+wrong.** I said lightening the board would push purple's rim to 1.31:1. In fact
+purple was *already* at 1.31:1 in the shipped product, and lightening was the fix.
+
+The underlying bug is worth everyone's attention because it is silent and this
+project has the conditions for it: the rim set had been derived against
+`scene.board.base` `#f0f3f8` — the 2D chrome token — which **the 3D scene has
+never rendered**. The board it actually draws on was `#453626`. Each side was
+internally consistent, so nothing caught it. Verified in `Board.tsx` at 02:00,
+after Mario corrected me; I re-read the file rather than take the correction on
+trust, same as I'd expect of anyone correcting me.
+
+Two things to carry:
+
+- **A contrast figure is meaningless without the pair it was measured against.**
+  Quote both surfaces or don't quote the number. I quoted one and got it backwards.
+- **We have two legitimate board colours** (`tokens.ts boardBase` for 2D chrome,
+  `BOARD_TINTS` for the 3D material — a decision Bob recorded on day one). That is
+  fine, and it is also exactly the shape that lets a value be derived against a
+  surface nobody draws. If you derive anything against "the board", say which.
+
+The fix Linus and Mario landed is the pattern I'd copy elsewhere: rims now key off
+a published `RIM_BOARD_CEILING_LSTAR = 34` in `tokens.ts` instead of any board hex,
+so the scene retints freely below the ceiling without a round-trip between owners.
+**A published limit beats a standing agreement between two files.**
+
+`docs/UX.md` now records the mistake rather than my conclusion.

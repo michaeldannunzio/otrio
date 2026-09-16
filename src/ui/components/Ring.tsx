@@ -161,13 +161,27 @@ export function ReserveTray({
 export function ColourBadge({
   colour,
   size = 'md',
+  provisional = false,
 }: {
   colour: PlayerColor | null;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * The colour is shown but not claimed -- an empty lobby seat, whose colour
+   * only becomes that seat's if enough people play. Rendered hollow so it
+   * cannot be read as "this colour is taken".
+   */
+  provisional?: boolean;
 }) {
   const { glyph } = colourGlyph(colour);
   return (
-    <span className={cx(`o-seatbadge o-seatbadge--${size}`, colourClass(colour))} aria-hidden="true">
+    <span
+      className={cx(
+        `o-seatbadge o-seatbadge--${size}`,
+        provisional && 'o-seatbadge--provisional',
+        colourClass(colour),
+      )}
+      aria-hidden="true"
+    >
       {glyph}
     </span>
   );

@@ -234,39 +234,38 @@ export type ThemeMode = 'light' | 'dark';
  * Its floor is 3:1. That floor is an accessibility guarantee, not a preference,
  * so it is what caps how light this can go.
  *
- * Measured against the light-coloured rim set (tokens.ts dark.playerNRim —
- * #a46dde #ef6b3e #bbe660 #5bbddb), sweeping the bamboo hue ray:
+ * The rim set is theme-independent (#be85f8 #fd7749 #81ac26 #67c8e6) and is no
+ * longer derived against a board colour at all — it is derived against a
+ * published limit, `RIM_BOARD_CEILING_LSTAR = 34` in `styles/tokens.ts`. That
+ * indirection is the fix for a real bug: the previous rim set was derived
+ * against `scene.board.base` #f0f3f8, a surface this scene has never rendered,
+ * and silently sat at 1.31:1. Retint freely at or below L* 34; above it, ask
+ * theming to re-derive rather than assuming the set degrades gracefully.
  *
  *     tint      L*     worst rim contrast
- *     #33261a   16.3   4.06:1
- *     #3f3123   21.5   3.48:1   <- dark
- *     #453626   23.8   3.22:1   <- light
- *     #493a2a   25.6   3.03:1   <- the ceiling. Past here the rim fails.
- *     #584633   31.1   2.49:1   BELOW FLOOR
- *     #c9a074   68.6   1.13:1   BELOW FLOOR
+ *     #453626   23.8   4.35:1
+ *     #584633   31.1   3.36:1   <- here. ~3 L* of margin left.
+ *     #604d35   34.1   3.01:1   <- the published ceiling
+ *     #665238   36.3   2.78:1   BELOW FLOOR
  *
- * So: as light as the outline allows, and not one step further. An earlier pass
- * put these much darker (L* 13-16) because the rim did not exist yet and the
- * piece FILL was carrying the silhouette alone; that constraint expired when
- * the rim landed, and these values are the relaxed ones.
+ * Deliberately NOT at the ceiling. Hex-vs-hex contrast is optimistic here: the
+ * rim is `toneMapped: false` so it renders at its literal sRGB value, while the
+ * board is lit and tone-mapped and therefore renders lighter than its albedo.
+ * The margin absorbs that. If a colour-picker on a real screenshot shows the
+ * rendered board above L* 34 equivalent, that measurement beats this arithmetic
+ * and theming re-derives against it.
  *
- * It is still a multiply over a real bamboo scan, so the ceiling is doing two
- * jobs: past roughly L* 26 the rim fails AND the tint starts bleaching the
- * grain out of the albedo. Keep it warm rather than pale.
- *
- * KNOWN GAP, NOT MINE TO FIX. The above uses the light-coloured rim set. The
- * LIGHT theme currently ships the dark-coloured set (tokens.ts light.playerNRim
- * — #602f99 etc.), which was derived against `scene.board.base` #f0f3f8, a
- * near-white surface. Against this board it gives purple 1.31:1. And it cannot
- * be fixed from here: sweeping the entire bamboo ray, that set never exceeds
- * 2.18:1 anywhere, because purple's rim (L* 31.4) wants a light board and
- * green's (L* 58.5) wants a dark one. The light theme needs light rims over a
- * wooden board, exactly as the dark theme already does. Owner: theming.
+ * SAME VALUE IN BOTH THEMES, on purpose. The board is a wooden object; it does
+ * not repaint when the 2D chrome does. What changes between themes is the light
+ * on it — exposure, environment intensity, key intensity, fog and background
+ * all move in Lighting.tsx — which is how a real object behaves and is enough
+ * to read as a themed scene. The record stays keyed by theme so the knob is
+ * there if a real screenshot says the dimmer rig needs a lift.
  */
 export const BOARD_TINTS: Readonly<Record<ThemeMode, { base: string; line: string }>> = {
-  //                                            L*     rim floor (light-coloured rim set)
-  light: { base: '#453626', line: '#8a6c47' }, // 23.8   3.22:1
-  dark: { base: '#3f3123', line: '#6b5336' }, //  21.5   3.48:1
+  //                                            L*     worst rim
+  light: { base: '#584633', line: '#9c7b52' }, // 31.1   3.36:1
+  dark: { base: '#584633', line: '#9c7b52' }, //  31.1   3.36:1
 };
 
 /**
@@ -300,6 +299,27 @@ export const BOARD_BOUNDS = {
  * Fitting the real outline buys about 10% of board size on the smallest screen
  * we support, for free.
  */
+/**
+ * Just the 3x3 playing area and its outline, for narrow viewports.
+ *
+ * The 12 storage spaces have no gameplay function (RULES.md §1.1) and their
+ * information — who has what left — is already in the 2D HUD, per colour AND
+ * per size, as numerals and as screen-reader text. On a 360px phone, framing
+ * the whole cross puts a playing space at ~59 CSS px; framing this puts it near
+ * 100. Since a placement is permanent (§4.3), that difference is the difference
+ * between aiming and hoping.
+ *
+ * The arms crop off the edges rather than disappearing, so the board still
+ * reads as a cross bleeding out of frame.
+ */
+export const PLAY_FIT_POINTS: ReadonlyArray<readonly [number, number, number]> = (() => {
+  const h = PLAY_OUTLINE_RADIUS + PLAY_OUTLINE_WIDTH / 2 + 0.03;
+  const top = SEAT_Y + PIECE_HEIGHT + 0.01;
+  const pts: Array<readonly [number, number, number]> = [];
+  for (const sx of [-h, h]) for (const sz of [-h, h]) pts.push([sx, 0, sz], [sx, top, sz]);
+  return pts;
+})();
+
 export const BOARD_FIT_POINTS: ReadonlyArray<readonly [number, number, number]> = (() => {
   const top = SEAT_Y + PIECE_HEIGHT + 0.01;
   const pts: Array<readonly [number, number, number]> = [];

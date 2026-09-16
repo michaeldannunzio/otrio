@@ -96,7 +96,18 @@
 import * as React from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
-import { BOARD_BOUNDS, BOARD_FIT_POINTS } from './Board';
+import { BOARD_BOUNDS, BOARD_FIT_POINTS, PLAY_FIT_POINTS } from './Board';
+
+/**
+ * Below this many CSS pixels per playing space, 'auto' framing drops the
+ * storage arms and frames the 3x3 instead.
+ *
+ * 44pt (Apple) / 48dp (Material) are minimum tap targets for things you can
+ * undo. A placement here is permanent (RULES.md §4.3) and you are choosing one
+ * of 9 adjacent targets, so the miss cost is a lost game, not a re-tap. 72 buys
+ * back the margin that the guidelines assume you have.
+ */
+export const MIN_COMFORTABLE_SPACE_PX = 72;
 
 const DEG = Math.PI / 180;
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
@@ -165,6 +176,14 @@ export interface Framing {
   offsetPxY: number;
   /** World units per CSS pixel per unit of camera distance, at the target plane. */
   unitsPerPxPerDistance: number;
+  /**
+   * CSS pixels per world unit at the target plane. Since one world unit is one
+   * space pitch (Board.SPACE_PITCH === 1), this IS the on-screen size of a
+   * playing space in CSS px — which is what decides whether the board is
+   * tappable. Drives the 'auto' framing choice, and useful to anyone placing
+   * HTML over the canvas.
+   */
+  pxPerUnit: number;
 }
 
 /**
@@ -284,6 +303,7 @@ export function computeFraming(o: FramingOptions): Framing {
     offsetPxX,
     offsetPxY,
     unitsPerPxPerDistance,
+    pxPerUnit: 1 / (distance * unitsPerPxPerDistance),
   };
 }
 
@@ -322,9 +342,33 @@ export interface CameraRigProps {
   /** Fallback fit volume when `fitPoints` is cleared. */
   halfExtents?: readonly [number, number, number];
   /**
-   * The silhouette to frame. Defaults to the board's real cross outline; pass
-   * your own (or `[]` to fall back to the AABB) if you are framing something
-   * else entirely.
+   * What to frame.
+   *
+   *   'board' — the whole cross, storage arms included.
+   *   'play'  — the 3x3 playing area; the arms crop off the edges.
+   *   'auto'  — 'board' when that leaves a playing space at least
+   *             MIN_COMFORTABLE_SPACE_PX across, otherwise 'play'. A single
+   *             monotonic crossover on viewport width, so it cannot oscillate.
+   *
+   * DEFAULT IS 'board', and the reason is a live tradeoff rather than an
+   * oversight. On a 360px phone 'board' leaves a playing space at 55 CSS px and
+   * 'play' at 86 — a 56% gain on the thing you aim at, and a placement is
+   * permanent (RULES.md §4.3). But the arms are not empty: the UI mounts a
+   * piece for every ring still in storage, so they are a live readout of who
+   * has which sizes left, which RULES.md §9 calls out and which decides most
+   * turns. 55 px still clears the 44pt minimum, so 'board' is not a failure —
+   * just tighter than comfortable. Deleting information to buy comfort is a
+   * product call, not mine, and nobody has yet seen this render with pieces on
+   * the arms. The capability is here; flipping the default is one prop.
+   *
+   * `onFraming` reports the `pxPerUnit` actually achieved, so this is
+   * measurable rather than arguable once there is a screenshot.
+   */
+  framing?: 'board' | 'play' | 'auto';
+
+  /**
+   * Override the silhouette entirely. Takes precedence over `framing`. Pass
+   * `[]` to fall back to the AABB.
    */
   fitPoints?: ReadonlyArray<readonly [number, number, number]>;
 
@@ -363,7 +407,8 @@ export function CameraRig({
   insets,
   center = BOARD_BOUNDS.center,
   halfExtents = BOARD_BOUNDS.halfExtents,
-  fitPoints = BOARD_FIT_POINTS,
+  framing: framingMode = 'board',
+  fitPoints,
   pitchDeg,
   azimuthDeg = CAMERA_DEFAULTS.azimuthDeg,
   zoom = CAMERA_DEFAULTS.zoom,
@@ -391,28 +436,41 @@ export function CameraRig({
     return window.matchMedia('(pointer: fine)').matches ? 1 : 0;
   }, [parallax]);
 
-  const framing = React.useMemo(
-    () =>
-      computeFraming({
-        width: size.width,
-        height: size.height,
-        insets: { ...NO_INSETS, ...insets },
-        center,
-        halfExtents,
-        points: fitPoints,
-        baseHalfAngleDeg,
-        minInsetFovDeg: CAMERA_DEFAULTS.minInsetFovDeg,
-        maxInsetFovDeg: CAMERA_DEFAULTS.maxInsetFovDeg,
-        minPitchDeg,
-        maxPitchDeg,
-        pitchDeg,
-        azimuthDeg,
-        padding,
-        zoom,
-        minDistance,
-        maxDistance,
-      }),
-    [
+  const framing = React.useMemo(() => {
+    const base = {
+      width: size.width,
+      height: size.height,
+      insets: { ...NO_INSETS, ...insets },
+      center,
+      halfExtents,
+      baseHalfAngleDeg,
+      minInsetFovDeg: CAMERA_DEFAULTS.minInsetFovDeg,
+      maxInsetFovDeg: CAMERA_DEFAULTS.maxInsetFovDeg,
+      minPitchDeg,
+      maxPitchDeg,
+      pitchDeg,
+      azimuthDeg,
+      padding,
+      zoom,
+      minDistance,
+      maxDistance,
+    };
+
+    // An explicit fitPoints override wins outright.
+    if (fitPoints) return computeFraming({ ...base, points: fitPoints });
+
+    if (framingMode === 'play') return computeFraming({ ...base, points: PLAY_FIT_POINTS });
+
+    const board = computeFraming({ ...base, points: BOARD_FIT_POINTS });
+    if (framingMode === 'board') return board;
+
+    // 'auto': keep the storage arms only while a playing space stays big enough
+    // to aim at. pxPerUnit is exactly the space's on-screen size, because one
+    // world unit is one space pitch.
+    return board.pxPerUnit >= MIN_COMFORTABLE_SPACE_PX
+      ? board
+      : computeFraming({ ...base, points: PLAY_FIT_POINTS });
+  }, [
       size.width,
       size.height,
       insets?.top,
@@ -421,6 +479,7 @@ export function CameraRig({
       insets?.left,
       center,
       halfExtents,
+      framingMode,
       fitPoints,
       baseHalfAngleDeg,
       minPitchDeg,
@@ -431,8 +490,7 @@ export function CameraRig({
       zoom,
       minDistance,
       maxDistance,
-    ],
-  );
+  ]);
 
   /* ---- animated state (never triggers a React render) ------------------- */
 

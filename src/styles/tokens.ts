@@ -125,9 +125,19 @@ export interface ColorTokens {
 
   /** three.js scene clear colour (the void around the board). */
   sceneBg: string
-  /** The board slab's material colour. */
+  /**
+   * The board slab's colour.
+   *
+   * MIRRORS `BOARD_TINTS` in `src/scene/Board.tsx`, which is AUTHORITATIVE —
+   * it multiplies a bamboo albedo map, so the rendered board is lit, textured
+   * and tone-mapped, and this flat hex is only an approximation of it. Use it
+   * for 2D representations of the board; do not use it to derive anything that
+   * needs a contrast guarantee against the real 3D surface. Rims are derived
+   * against {@link RIM_BOARD_CEILING_LSTAR} precisely so they do not depend on
+   * this value staying current.
+   */
   boardBase: string
-  /** Engraved grid lines on the board. */
+  /** Engraved grid lines on the board. Mirrors `BOARD_TINTS[].line`. */
   boardLine: string
 }
 
@@ -145,12 +155,17 @@ export interface ColorTokens {
  *             a lilac (#b877ff from #7237b8). That is the role doing its job.
  *             Pair a `base` swatch with `ui` text — the swatch carries the
  *             identity, the text carries the legibility.
- * - `rim`     The piece's outline / edge colour in the 3D scene. Guaranteed
- *             >= 3:1 against the board. THIS IS NOT DECORATIVE: a piece's fill
- *             alone does not clear 3:1 against the board for every player (the
- *             green piece on the light board is 1.53:1, and purple on the dark
- *             walnut is 1.53:1), so the rim is what makes the silhouette
+ * - `rim`     The piece's outline / edge colour in the 3D scene. THIS IS NOT
+ *             DECORATIVE: the purple piece's fill is only 1.63:1 against the
+ *             bamboo board, so the rim is what makes its silhouette
  *             perceivable. Pieces must render with it.
+ *
+ *             IDENTICAL IN BOTH THEMES, deliberately. The board is wood in
+ *             both, and a piece is a physical object — it does not repaint
+ *             when the interface does. Only `ui`/`soft`/`onSoft`/`on` are
+ *             theme-dependent, because only those sit on a themed panel.
+ *             Derived against {@link RIM_BOARD_CEILING_LSTAR}, NOT against
+ *             `boardBase`; see that constant for why.
  * - `soft`    Tinted background for a chip / the active player's row.
  * - `onSoft`  Text on a `soft` background.
  * - `on`      Text on a `base` fill.
@@ -193,31 +208,31 @@ export const COLORS: Readonly<Record<ThemeMode, Readonly<ColorTokens>>> = {
     infoOnSoft: '#0070b6',
     player1: '#7237b8',
     player1Ui: '#7237b8',
-    player1Rim: '#602f99',
+    player1Rim: '#be85f8',
     player1Soft: '#f5e9ff',
     player1OnSoft: '#884bce',
     player1On: '#ffffff',
     player2: '#e8501e',
     player2Ui: '#c63100',
-    player2Rim: '#c94b21',
+    player2Rim: '#fd7749',
     player2Soft: '#ffe9e2',
     player2OnSoft: '#c93401',
     player2On: '#130400',
     player3: '#a2d733',
     player3Ui: '#517400',
-    player3Rim: '#6e9a0c',
+    player3Rim: '#81ac26',
     player3Soft: '#eaf1d4',
     player3OnSoft: '#537700',
     player3On: '#060900',
     player4: '#1cafd2',
     player4Ui: '#00738c',
-    player4Rim: '#2c98b5',
+    player4Rim: '#67c8e6',
     player4Soft: '#d3f3ff',
     player4OnSoft: '#00768f',
     player4On: '#00090d',
     sceneBg: '#cbd3e0',
-    boardBase: '#f0f3f8',
-    boardLine: '#96a5ba',
+    boardBase: '#453626',
+    boardLine: '#8a6c47',
   },
   dark: {
     bg: '#0b0e13',
@@ -253,31 +268,31 @@ export const COLORS: Readonly<Record<ThemeMode, Readonly<ColorTokens>>> = {
     infoOnSoft: '#97c4ff',
     player1: '#7237b8',
     player1Ui: '#b877ff',
-    player1Rim: '#a46dde',
+    player1Rim: '#be85f8',
     player1Soft: '#473754',
     player1OnSoft: '#d9b0ff',
     player1On: '#ffffff',
     player2: '#e8501e',
     player2Ui: '#ff6430',
-    player2Rim: '#ef6b3e',
+    player2Rim: '#fd7749',
     player2Soft: '#583529',
     player2OnSoft: '#ffad90',
     player2On: '#130400',
     player3: '#a2d733',
     player3Ui: '#a2d733',
-    player3Rim: '#bbe660',
+    player3Rim: '#81ac26',
     player3Soft: '#384122',
     player3OnSoft: '#9dd22d',
     player3On: '#060900',
     player4: '#1cafd2',
     player4Ui: '#1cafd2',
-    player4Rim: '#5bbddb',
+    player4Rim: '#67c8e6',
     player4Soft: '#004454',
     player4OnSoft: '#52d0f4',
     player4On: '#00090d',
     sceneBg: '#090c11',
-    boardBase: '#232b38',
-    boardLine: '#4e5c72',
+    boardBase: '#3f3123',
+    boardLine: '#6b5336',
   },
 } as const
 
@@ -329,6 +344,53 @@ export const PLAYERS: readonly PlayerIdentity[] = [
   { index: 2, key: 'green', label: 'Green', seat: 'south', glyph: '■', glyphLabel: 'square', hue: 120 },
   { index: 3, key: 'blue', label: 'Blue', seat: 'west', glyph: '◆', glyphLabel: 'diamond', hue: 230 },
 ] as const
+
+/**
+ * The rim set clears 3:1 against ANY board up to this CIE L*.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ Rims are derived against this CEILING, not against `boardBase`. That is    │
+ * │ the fix for a real bug: the light theme's rims were once derived against   │
+ * │ a near-white `boardBase`, producing a DARK rim set, while the actual 3D    │
+ * │ board is a bamboo-albedo multiply that is dark in BOTH themes. Measured    │
+ * │ result was 1.31:1 — the silhouette guarantee was not being met at all.     │
+ * │                                                                           │
+ * │ Deriving against a ceiling rather than a colour lets the scene retint the  │
+ * │ board freely; the guarantee holds as long as it stays at or below L* 34.   │
+ * │ `BOARD_TINTS` in `src/scene/Board.tsx` is authoritative for the actual     │
+ * │ board and sits at L* 23.8 / 21.5, comfortably inside.                      │
+ * │                                                                           │
+ * │ The headroom is deliberate, for two reasons: the user asked for a lighter  │
+ * │ board, and the RENDERED board is lighter than its albedo hex because it is │
+ * │ lit and tone-mapped while the rim is `toneMapped: false`. Hex-vs-hex is    │
+ * │ therefore optimistic, and this margin absorbs the difference.              │
+ * │                                                                           │
+ * │ To go lighter than L* 34, the rims must be re-derived — not reused.        │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
+export const RIM_BOARD_CEILING_LSTAR = 34
+
+/**
+ * Why all four rims sit at nearly the same lightness (L* 65 / 65 / 65 / 76).
+ *
+ * Contrast is a pure function of luminance, so requiring all four to clear 3:1
+ * against one board forces them to one luminance. "Every rim clears the board"
+ * and "rims are distinguishable in greyscale" are mathematically opposed — you
+ * cannot have both. The silhouette wins, because the rim is the SILHOUETTE
+ * channel, not the identity channel. Identity is carried by the fill, the
+ * glyph, and the scene's gloss-to-matte finish ladder, all of which survive
+ * greyscale.
+ *
+ * In normal vision the rims are still clearly distinct (min ΔE 31.6), so an
+ * edge reads as that player's colour rather than as a grey halo.
+ *
+ * Blue's rim is the one lifted above the rest, by a second rule: a rim must
+ * also stay visible against ITS OWN fill or the outline vanishes on the piece.
+ * Blue's fill is L* 66, so a rim at L* 65 would have disappeared into it.
+ *
+ * Do not "fix" the rims to be more mutually distinct — that breaks the contrast
+ * guarantee, which is the only thing the rim exists to provide.
+ */
 
 /**
  * `playerColor(colors, 0, 'rim')` -> the purple player's rim colour.

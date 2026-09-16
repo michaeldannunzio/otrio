@@ -47,7 +47,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import { wireError } from '../../src/net/protocol.ts';
+import { normalizeRoomCode, wireError } from '../../src/net/protocol.ts';
 import type { ErrorCode, WireError } from '../../src/net/protocol.ts';
 import { TokenBucket } from './util.ts';
 import type { Logger } from './util.ts';
@@ -164,6 +164,11 @@ interface SignalSession {
   strikes: number;
 }
 
+/** Narrow a parsed JSON value to something with string-keyed properties. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 /* ========================================================================== *
  * Relay
  * ========================================================================== */
@@ -229,43 +234,62 @@ export class SignalingRelay {
       return;
     }
 
-    let msg: SignalClientMsg;
+    // Parsed as `unknown`, NOT asserted into `SignalClientMsg`.
+    //
+    // Casting untrusted wire bytes straight into the union is both false and
+    // self-defeating: it lets the compiler exhaust the union across the four
+    // cases below and conclude the `default` branch is `never` — unreachable —
+    // when `default` is precisely the branch that catches everything a real
+    // client sends by mistake. The type was wrong, not the code.
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw) as SignalClientMsg;
+      parsed = JSON.parse(raw);
     } catch {
       return this.fail(session, 'INTERNAL', 'malformed JSON', false);
     }
-    if (typeof msg !== 'object' || msg === null || typeof msg.t !== 'string') {
+    if (!isRecord(parsed) || typeof parsed.t !== 'string') {
       return this.fail(session, 'INTERNAL', 'malformed message', false);
     }
 
-    switch (msg.t) {
+    // `parsed.t` is a plain `string`, so `default` stays reachable. Each case
+    // narrows to its own shape, and every handler re-checks the fields it
+    // actually reads — the cast buys convenience, never trust.
+    switch (parsed.t) {
       case 'join':
-        return this.onJoin(session, msg);
+        return this.onJoin(session, parsed as Extract<SignalClientMsg, { t: 'join' }>);
       case 'signal':
-        return this.onSignal(session, msg);
+        return this.onSignal(session, parsed as Extract<SignalClientMsg, { t: 'signal' }>);
       case 'ping':
-        return this.send(session.ws, { t: 'pong', ts: typeof msg.ts === 'number' ? msg.ts : 0 });
+        return this.send(session.ws, {
+          t: 'pong',
+          ts: typeof parsed.ts === 'number' ? parsed.ts : 0,
+        });
       case 'leave':
         this.closeSocket(session.ws, 1000, 'left');
         return;
       default:
-        // Unknown but well-formed: say so instead of staying silent, so the
-        // client fails loudly rather than waiting forever.
+        // Well-formed but unknown: answer, so the client fails loudly rather
+        // than waiting forever for a reply that is never coming.
         return this.fail(
           session,
           'INTERNAL',
-          `unknown message type "${String(msg.t).slice(0, 32)}"`,
+          `unknown message type "${parsed.t.slice(0, 32)}"`,
           false,
         );
     }
   }
 
   private onJoin(session: SignalSession, msg: Extract<SignalClientMsg, { t: 'join' }>): void {
-    const code = String(msg.room ?? '')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '')
-      .slice(0, 24);
+    // The SAME normalisation the game socket applies, not a lookalike of it.
+    // `normalizeRoomCode` folds the four confusable characters (I/L to 1, O to
+    // 0, U to V) on top of upper-casing and stripping punctuation. Clients are
+    // expected to normalise before they get here and currently do, so this is
+    // defence in depth — but the failure it prevents is a nasty one: two peers
+    // that disagree by a single character land in two private rooms, each
+    // waiting for the other, which looks exactly like NAT traversal failing and
+    // is debugged nothing like it. Two sockets on one server must not disagree
+    // about what "the same room" means.
+    const code = normalizeRoomCode(String(msg.room ?? '')).slice(0, 24);
     if (code.length < 4) {
       return this.fail(session, 'CODE_INVALID', 'bad room code', true);
     }

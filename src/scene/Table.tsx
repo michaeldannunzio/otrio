@@ -29,6 +29,35 @@
 import * as React from 'react';
 import * as THREE from 'three';
 import { useSurfaceMaterial } from './textures';
+import type { ThemeMode } from './Board';
+
+/**
+ * Baize tint per theme.
+ *
+ * Two reasons this exists rather than letting textures.ts's default through.
+ *
+ * 1. It was the last thing in the scene that ignored `theme` entirely. The
+ *    cloth is most of the frame on anything wider than a phone, so a table that
+ *    does not move between light and dark meant the scene barely moved either.
+ *
+ * 2. It is now load-bearing for the board's silhouette. When the board sat at
+ *    L* 23.8 the stock baize (#2c6647, L* 38.7) gave 1.71:1 and the slab read
+ *    as a dark object on a mid cloth. Lightening the board to L* 31.1 collapsed
+ *    that to 1.32:1 — board and cloth within a whisker of the same luminance,
+ *    which is where a large object stops having an edge. So the cloth had to
+ *    move too: light goes lighter (2.16:1), dark goes darker (1.52:1, carried
+ *    the rest of the way by hue, the chamfered edge and the slab's own cast
+ *    shadow).
+ *
+ * The HUE is not mine to choose. Green is also a player colour, so a saturated
+ * green cloth sits next to the green player's identity — flagged to UX, not
+ * acted on. Change `color` (or these values) and nothing else in the scene
+ * cares; the felt scan is near-neutral and takes any tint cleanly.
+ */
+export const TABLE_TINTS: Readonly<Record<ThemeMode, string>> = {
+  light: '#3d8b60', // L* 52.2, board reads at 2.16:1
+  dark: '#153327', //  L* 18.7, board reads at 1.52:1
+};
 
 /** Metres per scene unit, from Board.tsx's derivation. */
 const METRES_PER_UNIT = 0.072;
@@ -43,7 +72,9 @@ export interface TableProps {
   size?: number;
   /** Thickness. Only the chamfered edge of this is ever visible, and only if you shrink `size`. */
   thickness?: number;
-  /** Tint multiplied into the felt albedo. textures.ts defaults to a card-table green. */
+  /** Selects the baize tint from TABLE_TINTS. Threaded from Scene's `theme`. */
+  theme?: ThemeMode;
+  /** Overrides the baize tint for this theme. Multiplies the felt albedo. */
   color?: string;
   /**
    * Felt tiling override. Leave it alone unless you want a different weave
@@ -63,6 +94,7 @@ export interface TableProps {
 export function Table({
   size = DEFAULT_SIZE,
   thickness = 0.22,
+  theme = 'light',
   color,
   repeat,
   segments = 1,
@@ -73,7 +105,7 @@ export function Table({
 
   const felt = useSurfaceMaterial('table', {
     repeat: feltRepeat,
-    ...(color ? { color } : {}),
+    color: color ?? TABLE_TINTS[theme] ?? TABLE_TINTS.light,
   });
 
   // Top face and body are separate so the top can carry a clean 0..1 UV set
