@@ -143,18 +143,32 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
           // mirror `sceneBg`, but passing it makes the match structural rather
           // than a standing agreement between two files.
           lighting={{ background: scene.background, fog: scene.fog }}
-          // The four storage arms, in seat order [north, east, south, west] --
-          // which is also `players` index order (0 purple/N, 1 red/E, 2 green/S,
-          // 3 blue/W). Arm accents are off by default, which leaves an *empty*
-          // arm with no colour identity at all; since the arms are how players
-          // read what everyone has left, that loses the information exactly when
-          // it matters most. Written out rather than `.map`ped because the prop
-          // is a fixed-length tuple and `map` returns `string[]`.
+          /*
+           * The four storage arms, in seat order [north, east, south, west] --
+           * which is also `players` index order (0 purple/N, 1 red/E, 2 green/S,
+           * 3 blue/W). Arm accents are off by default, which leaves an *empty*
+           * arm with no colour identity at all; since the arms are how players
+           * find their own side before a piece is placed, that loses the
+           * information exactly when it matters most.
+           *
+           * `rim`, NOT `base` — `BoardProps.armColors` is explicit about this
+           * and I had it wrong. The bar is inlaid in the slab, so its backdrop
+           * is the board itself and it has no outline to fall back on. The
+           * `base` colours measure 1.26 / 2.39 / 5.26 / 3.47 against the board:
+           * purple's marker would have been invisible, on the one surface whose
+           * whole job is "this side is yours". The `rim` set carries the
+           * >= 3:1 guarantee against any board at or below
+           * `RIM_BOARD_CEILING_LSTAR`, and measures 3.36-4.70 here. Passing
+           * `base` silently opted this call site out of that guarantee.
+           *
+           * Written out rather than `.map`ped because the prop is a
+           * fixed-length tuple and `map` returns `string[]`.
+           */
           armColors={[
-            scene.players[0].base,
-            scene.players[1].base,
-            scene.players[2].base,
-            scene.players[3].base,
+            scene.players[0].rim,
+            scene.players[1].rim,
+            scene.players[2].rim,
+            scene.players[3].rim,
           ]}
           onSpaceClick={(info: SpacePointerInfo) => {
             // Storage spaces have a null index; only the 3x3 playing area is a

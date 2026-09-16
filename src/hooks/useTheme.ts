@@ -386,11 +386,14 @@ export function useThemeColors(): Theme['colors'] {
  *
  * ```tsx
  * const scene = useSceneTheme()
- * <color attach="background" args={[scene.background]} />
- * <fog attach="fog" args={[scene.fog.color, scene.fog.near, scene.fog.far]} />
- * <ambientLight color={scene.lights.ambient.color} intensity={scene.lights.ambient.intensity} />
- * <meshPhysicalMaterial color={scene.players[i].base} roughness={scene.piece.roughness} />
+ * <Scene lighting={{ background: scene.background, fog: scene.fog }} />
+ * <meshPhysicalMaterial color={scene.players[i].base} />
  * ```
+ *
+ * It carries `background`, `fog`, `piece.rimWidth`, `highlight` and
+ * `players[]` — and deliberately nothing else. The lighting rig, the board
+ * material and the per-player surface finish are owned by the scene and the
+ * materials layer, which derive them from geometry this layer cannot see.
  *
  * Hex strings are sRGB; three.js converts them for you. Do not call
  * `.convertSRGBToLinear()` on them.

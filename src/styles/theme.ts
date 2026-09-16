@@ -71,16 +71,30 @@ function playersFor(mode: ThemeMode): readonly PlayerColors[] {
 
 /* ──────────────────────────── scene theme ─────────────────────────────── */
 
-export type Vec3 = readonly [number, number, number]
-
-export interface SceneLight {
-  color: string
-  intensity: number
-  position: Vec3
-}
-
 /**
- * Everything the three.js side needs to match the current theme.
+ * Everything the three.js side needs from the THEME — and deliberately nothing
+ * more.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ WHAT IS NOT HERE, AND WHY                                                 │
+ * │ This interface used to carry `lights`, `environment`, `shadow`,           │
+ * │ `toneMappingExposure` and `board`. They were removed because nothing read │
+ * │ them and they could not have been right if it had: the lighting rig is    │
+ * │ derived from facts the theme layer has no access to — shadow bounds from  │
+ * │ the cross's measured arm extents in the key light's own basis, fog from   │
+ * │ the camera's fitted distance. `Lighting.tsx` owns those; `BOARD_TINTS` in │
+ * │ `Board.tsx` owns the board material, because it is a multiply over a      │
+ * │ bamboo scan rather than an absolute colour.                               │
+ * │                                                                           │
+ * │ A second set of plausible-looking values that nothing consumes is exactly │
+ * │ how the rim bug happened: rims were derived against a `board.base` the    │
+ * │ scene had never rendered, and measured 1.31:1 instead of 3:1. Tokens that │
+ * │ describe something you do not own are not harmless — they are a trap for  │
+ * │ whoever trusts them next.                                                 │
+ * │                                                                           │
+ * │ For 2D chrome that draws a board, `--board-base` / `--board-line` remain  │
+ * │ in `tokens.css` and mirror `BOARD_TINTS`.                                 │
+ * └───────────────────────────────────────────────────────────────────────────┘
  *
  * COLOUR MANAGEMENT: every string here is an sRGB hex, which is what three.js
  * expects. With `THREE.ColorManagement` enabled (the default since r152, and
@@ -91,45 +105,34 @@ export interface SceneLight {
  */
 export interface SceneTheme {
   mode: ThemeMode
-  /** Renderer clear colour / `scene.background`. */
+  /**
+   * Renderer clear colour. This one MUST come from the theme: the canvas sits
+   * inside a themed page, and if the clear colour does not match the CSS
+   * behind it there is a hard seam at the canvas edge. Wired through
+   * `BoardStage` as `lighting={{ background, fog }}`.
+   */
   background: string
-  /** Fades the board's far edge into the backdrop. Set `scene.fog`. */
+  /** Fades the board's far edge into the backdrop. Same reasoning as above. */
   fog: { color: string; near: number; far: number }
-  board: {
-    base: string
-    /** Engraved grid lines / slot outlines. */
-    line: string
-    /** The slab's chamfered edge; reads against the backdrop. */
-    edge: string
-    roughness: number
-    metalness: number
-    clearcoat: number
-  }
   piece: {
-    roughness: number
-    metalness: number
-    clearcoat: number
-    clearcoatRoughness: number
     /**
-     * Dark mode gives pieces a little self-illumination so saturated colours
-     * do not sink into the dark board. Use as
-     * `emissive={player.base}` + `emissiveIntensity={scene.piece.emissiveIntensity}`.
+     * Outline thickness in world units for a player's `rim` colour, scaled by
+     * the piece pitch. Read by `Piece.tsx`.
+     *
+     * Only the rim lives here. Surface finish — roughness, clearcoat, grain —
+     * belongs to `PLAYER_PAINTS[].finish` in `scene/materials/palette.ts`,
+     * which varies it PER PLAYER as a second identity channel. A flat set of
+     * material constants here would have quietly competed with that ladder.
      */
-    emissiveIntensity: number
-    /** Suggested outline thickness in world units for the `rim` colour. */
     rimWidth: number
   }
-  lights: {
-    ambient: { color: string; intensity: number }
-    key: SceneLight
-    fill: SceneLight
-    rim: SceneLight
-  }
-  /** For drei's `<Environment />`. `background` stays false — we draw our own. */
-  environment: { preset: EnvironmentPreset; intensity: number }
-  /** For drei's `<ContactShadows />`. */
-  shadow: { color: string; opacity: number; blur: number; far: number; resolution: number }
-  toneMappingExposure: number
+  /**
+   * Board-cell affordances. NOT YET WIRED: `TargetIndicators` and
+   * `ImpactRings` currently take a `color` prop defaulting to a hardcoded
+   * neutral. These are kept, not deleted, because they are the theme's call to
+   * make — unlike the lighting rig, nothing about a hover tint depends on
+   * scene geometry.
+   */
   highlight: {
     /** Cursor/finger is over this cell. */
     hover: string
@@ -153,43 +156,11 @@ export interface SceneTheme {
   players: readonly PlayerColors[]
 }
 
-export type EnvironmentPreset =
-  | 'city' | 'studio' | 'apartment' | 'lobby' | 'warehouse'
-  | 'sunset' | 'dawn' | 'night' | 'forest' | 'park'
-
-const KEY_POS: Vec3 = [6, 10, 6]
-const FILL_POS: Vec3 = [-8, 5, -4]
-const RIM_POS: Vec3 = [0, 6, -10]
-
 const SCENE: Record<ThemeMode, Omit<SceneTheme, 'players' | 'mode'>> = {
   light: {
     background: COLORS.light.sceneBg,
     fog: { color: COLORS.light.sceneBg, near: 14, far: 34 },
-    board: {
-      base: COLORS.light.boardBase,
-      line: COLORS.light.boardLine,
-      edge: COLORS.light.borderStrong,
-      roughness: 0.55,
-      metalness: 0.0,
-      clearcoat: 0.1,
-    },
-    piece: {
-      roughness: 0.35,
-      metalness: 0.0,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.25,
-      emissiveIntensity: 0,
-      rimWidth: 0.012,
-    },
-    lights: {
-      ambient: { color: '#ffffff', intensity: 0.55 },
-      key: { color: '#fff6e8', intensity: 2.2, position: KEY_POS },
-      fill: { color: '#dce7ff', intensity: 0.8, position: FILL_POS },
-      rim: { color: '#ffffff', intensity: 0.6, position: RIM_POS },
-    },
-    environment: { preset: 'city', intensity: 0.7 },
-    shadow: { color: '#2a3446', opacity: 0.28, blur: 2.4, far: 12, resolution: 512 },
-    toneMappingExposure: 1.0,
+    piece: { rimWidth: 0.012 },
     highlight: {
       hover: COLORS.light.textPrimary,
       hoverOpacity: 0.12,
@@ -204,31 +175,7 @@ const SCENE: Record<ThemeMode, Omit<SceneTheme, 'players' | 'mode'>> = {
   dark: {
     background: COLORS.dark.sceneBg,
     fog: { color: COLORS.dark.sceneBg, near: 16, far: 40 },
-    board: {
-      base: COLORS.dark.boardBase,
-      line: COLORS.dark.boardLine,
-      edge: COLORS.dark.borderStrong,
-      roughness: 0.5,
-      metalness: 0.05,
-      clearcoat: 0.15,
-    },
-    piece: {
-      roughness: 0.3,
-      metalness: 0.0,
-      clearcoat: 0.7,
-      clearcoatRoughness: 0.2,
-      emissiveIntensity: 0.12,
-      rimWidth: 0.012,
-    },
-    lights: {
-      ambient: { color: '#8f9cb8', intensity: 0.35 },
-      key: { color: '#ffeed8', intensity: 1.8, position: KEY_POS },
-      fill: { color: '#4a6ea8', intensity: 0.7, position: FILL_POS },
-      rim: { color: '#8fa8ff', intensity: 1.0, position: RIM_POS },
-    },
-    environment: { preset: 'night', intensity: 0.45 },
-    shadow: { color: '#000000', opacity: 0.55, blur: 2.8, far: 12, resolution: 512 },
-    toneMappingExposure: 1.15,
+    piece: { rimWidth: 0.012 },
     highlight: {
       hover: COLORS.dark.textPrimary,
       hoverOpacity: 0.14,

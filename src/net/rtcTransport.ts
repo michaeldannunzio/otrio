@@ -825,9 +825,14 @@ export class RtcTransport implements Transport {
       const urls = typeof s.urls === 'string' ? [s.urls] : s.urls;
       return urls.some((u) => u.startsWith('turn:') || u.startsWith('turns:'));
     });
+    // Diagnosis only, deliberately: what to *do* about it is a claim about
+    // affordances the UI may or may not offer, and this string cannot know
+    // whether a "switch to the hosted game" control exists. Telling someone to
+    // press a button that isn't there is worse than saying nothing. The UI
+    // layer owns the instruction; this owns the fact.
     return hasTurn
       ? 'a TURN relay is configured but no path through it worked — check the TURN credentials, or this network may block relays too'
-      : 'no TURN relay is configured, so networks that block direct peer-to-peer traffic cannot be used. Try mobile data, or switch to the hosted game.';
+      : 'no TURN relay is configured, so networks that block direct peer-to-peer traffic cannot be used';
   }
 
   /* ---------------------- signalling ---------------------- */
@@ -1708,6 +1713,20 @@ export function supportsWebRTC(): boolean {
  * `isPlausibleRoomCode` treat them exactly as they treat hosted codes. Six
  * characters of Crockford Base32 is about a billion rooms, which is plenty of
  * margin against someone guessing their way into a game.
+ *
+ * **The length is fixed and nothing is packed into it.** `RoomCode` in
+ * `protocol.ts` warns against assuming a length, on the grounds that a
+ * peer-to-peer backend might need to carry signalling information in the code.
+ * This one does not: the relay's address comes from `resolveSignalingUrl`, i.e.
+ * config, env or the page origin. So six characters is an invariant, not a
+ * current value, and downstream length limits (the UI truncates typed input at
+ * 12) have room to spare. If that ever changes, every one of those limits
+ * becomes a silent truncation that joins the wrong room.
+ *
+ * `% ROOM_CODE_ALPHABET.length` is unbiased only because the alphabet has 32
+ * entries and 32 divides 256. That constant lives in another module: if it is
+ * ever edited to a length that does not divide 256, this quietly starts
+ * favouring the first few characters. Rejection-sample if that day comes.
  */
 function mintRoomCode(): RoomCode {
   const bytes = new Uint8Array(P2P_ROOM_CODE_LENGTH);

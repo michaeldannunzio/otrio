@@ -54,10 +54,7 @@ export {
   getTheme,
   verifyThemeSync,
   type ApplyThemeOptions,
-  type EnvironmentPreset,
   type PlayerColors,
-  type SceneLight,
   type SceneTheme,
   type Theme,
-  type Vec3,
 } from './theme'

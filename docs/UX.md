@@ -12,7 +12,18 @@ after.
 > scene was wired, so every one shows an empty board. Checks 1, 2, 3, 5 and 7 are about
 > HUD and copy and stand as written. Anything I have said about the *board* — its size on
 > a phone, the storage arms, piece legibility, the table colour — is **provisional** until
-> a run exists with pieces in it. They are also all light mode; nobody has seen dark.
+> a run exists with pieces in it.
+>
+> **All 21 are also light mode, and that is not a coverage gap — it is a specific unknown.**
+> `BOARD_TINTS` is the same value in both themes on purpose; only the lighting moves. So
+> every contrast figure on this page is albedo arithmetic for one rig, and the dark theme
+> renders the same slab under a dimmer one. Two things to measure on the first dark frame,
+> both currently carried by reasoning rather than a pixel: **board against cloth at 1.52:1**
+> (Mario's number — below any luminance floor, relying on hue, the chamfer and the cast
+> shadow to separate slab from table), and whether the rendered board sits above or below
+> `RIM_BOARD_CEILING_LSTAR` once tone mapping has had its say. A colour-picker on a real
+> frame beats every number here, and the `armColors` defect is the proof: contrast failures
+> are exactly the class a light-only screenshot set cannot rule out.
 
 ---
 
@@ -27,6 +38,9 @@ player is mostly looking at the other people. Nobody reads a HUD. They glance at
 ---
 
 ## The seven checks
+
+*This section is the checklist — run it every time. Everything below it is background:
+read it once, or when it bites.*
 
 ### 1. Can you tell whose turn it is in under a second, without reading?
 
@@ -104,6 +118,29 @@ well-written copy that is completely hidden behind the player rail and a toast.
 
 ---
 
+## The recurring trap: "unknowable, or unknowable *from here*?"
+
+Howard named this after it bit the same layer three times in one night, and it is the
+single cheapest question on this page:
+
+| What was believed | What was true | What it cost |
+|---|---|---|
+| A seat and a colour are the same thing | They are — in 3- and 4-player games | `reserves[seat]` returns the wrong tray in exactly the config tested last |
+| The lobby cannot know a seat's colour | It cannot know the **count**; `buildShape` fixes the colour | A lobby that showed numbers when it could have shown identity |
+| The second colour must be hedged | Only *whether*, not *which* — the pairs are a constant | "(+1 if two play)", which parses as a score |
+
+Every one is a **true statement scoped too widely**, and every one had a narrower true
+statement sitting one file away that nobody went looking for. Note the third: it was
+written *in the same edit that fixed the second*.
+
+So before you hedge, hide, or show a placeholder, ask: **is this fact unknowable, or
+unknowable from where I happen to be standing?** If the answer is the second, go and get
+it. A hedge is a cost paid by every player on every screen, forever, and it should be
+paid for real uncertainty only.
+
+This is also why I flag rather than assume: I made the same mistake in this review,
+attaching a contrast figure to the wrong one of the two surfaces in a sentence.
+
 ## Things that are settled — do not re-open without Bob
 
 - **The lobby shows seat numbers and no colours.** `PlayerView.colors` is empty until the
@@ -140,6 +177,28 @@ The structural fix is worth copying: rims now key off a published
 `RIM_BOARD_CEILING_LSTAR = 34` in `tokens.ts` rather than off any board hex, so the scene
 can retint freely below the ceiling without a round-trip between owners. **A published
 limit beats a standing agreement between two files.**
+
+It paid off a second time within the hour. Mario could write "pass `players[i].rim`" in a
+prop doc **without knowing what board the caller would draw it against**, because the
+guarantee travels with the set. That is the difference between a measurement (true of one
+pair, on one day) and an invariant (true of every caller, forever). Reach for the second.
+
+The part worth being precise about: the invariant is what made the fact **citable by
+someone else**. Howard corrected his own call site off Mario's prop doc, without either of
+them talking to the other. A measurement in one agent's head could never have done that —
+it would have needed a conversation, and the conversation is the thing that doesn't happen.
+
+**Name the backdrop, every time.** I told Mario the green player's arm bar had to stay
+legible against the table cloth. The bars are inlaid in the *board slab* — his own comment
+says so, and I had read it. Purple's bar measures 1.26:1 against the board, so the check
+was worth running and I aimed it at the wrong surface. A contrast claim needs both halves
+named or it is noise.
+
+**And check the seam.** That defect was live: `Board.tsx` documents `armColors` as
+requiring `rim`, `BoardStage.tsx` passes `base`. Mario was right about his file, Howard
+was right about his, and each had a current-but-stale read of the other's. Neither could
+see it from where they stood. When a value crosses an ownership boundary, somebody has to
+look at both ends on the same day — that is a large part of what this role is for.
 
 **Still open, and it's a hue question, not a contrast one:** the table felt is now themed
 (`TABLE_TINTS` in `Table.tsx`) but it is still green, and green is also a *player* colour.

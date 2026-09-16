@@ -25,6 +25,12 @@ export function ToastStack() {
           <div className="o-toast__text">
             <p className="o-toast__title">{toast.title}</p>
             {toast.detail ? <p className="o-toast__detail">{toast.detail}</p> : null}
+            {toast.technical ? (
+              // Muted and smaller: this is the server's own words, kept because
+              // for a signalling failure it is the difference between "my
+              // server is misconfigured" and "bad luck". It never leads.
+              <p className="o-toast__technical">{toast.technical}</p>
+            ) : null}
           </div>
           {toast.action ? (
             <button

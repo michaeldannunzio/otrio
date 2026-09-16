@@ -269,34 +269,37 @@ three.js cannot read CSS custom properties. It reads the identical values from `
 ```tsx
 import { useSceneTheme } from '../hooks/useTheme'
 
-function Board() {
-  const s = useSceneTheme()          // stable identity per mode — safe in deps arrays
-  return (
-    <>
-      <color attach="background" args={[s.background]} />
-      <fog attach="fog" args={[s.fog.color, s.fog.near, s.fog.far]} />
-      <ambientLight color={s.lights.ambient.color} intensity={s.lights.ambient.intensity} />
-      <directionalLight {...s.lights.key} castShadow />
-      <Environment preset={s.environment.preset} environmentIntensity={s.environment.intensity} />
-      <ContactShadows {...s.shadow} />
-      <mesh>
-        <meshPhysicalMaterial
-          color={s.board.base}
-          roughness={s.board.roughness}
-          metalness={s.board.metalness}
-        />
-      </mesh>
-    </>
-  )
-}
+const s = useSceneTheme()   // stable identity per mode — safe in deps arrays
+
+// The canvas clear colour and fog must come from the theme, or there is a hard
+// seam where the canvas meets the themed page behind it.
+<Scene lighting={{ background: s.background, fog: s.fog }} />
+
+// Piece outline. s.players[i].rim is the silhouette guarantee; see above.
+getPieceOutlineMaterial(s.piece.rimWidth * pitch, s.players[i].rim)
 ```
 
-`SceneTheme` provides `background`, `fog`, `board`, `piece` (material parameters), `lights`
-(`ambient`/`key`/`fill`/`rim`), `environment`, `shadow`, `toneMappingExposure`, `highlight`
-(`hover`/`target`/`blocked`/`lastMove`/`winGlow` with opacities) and `players[]`.
+`SceneTheme` carries exactly five things: `background`, `fog`, `piece.rimWidth`, `highlight`
+(`hover`/`target`/`blocked`/`lastMove`/`winGlow`, with opacities) and `players[]`.
 
-Set `gl.toneMappingExposure = s.toneMappingExposure` — dark mode uses 1.15 so saturated pieces do
-not sink into the dark board.
+**What it deliberately does not carry.** It used to also expose `lights`, `environment`, `shadow`,
+`toneMappingExposure` and `board`. Those were removed. Nothing read them, and they could not have
+been correct if anything had: the lighting rig is derived from facts this layer cannot see — shadow
+bounds from the cross's measured arm extents in the key light's own basis, fog distances from the
+camera's fitted framing. `Lighting.tsx` owns those. `BOARD_TINTS` in `Board.tsx` owns the board
+material, because it is a multiply over a bamboo scan rather than an absolute colour, and
+`PLAYER_PAINTS[].finish` in `materials/palette.ts` owns per-player surface finish, which varies by
+player as a second identity channel that a flat constant here would have competed with.
+
+That is not tidiness. A second set of plausible-looking values that nothing consumes is precisely
+how the rim bug happened — rims were derived against a `board.base` the scene had never rendered
+and measured 1.31:1 instead of the 3:1 they promised. **A token describing something you do not own
+is a trap for whoever trusts it next.** For 2D chrome that draws a board, `--board-base` and
+`--board-line` remain and mirror `BOARD_TINTS`.
+
+`highlight` is kept but **not yet wired** — `TargetIndicators` and `ImpactRings` take a `color` prop
+that still defaults to a hardcoded neutral. Unlike the lighting rig, nothing about a hover tint
+depends on scene geometry, so this one really is the theme's call to make.
 
 **Colour management.** Every string is an sRGB hex, which is what three.js expects.
 `ColorManagement` is on by default in r152+ (this project is r171), so `new THREE.Color(hex)` and

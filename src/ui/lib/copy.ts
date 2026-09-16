@@ -173,6 +173,59 @@ export function describeError(code: ErrorCode | string | null | undefined): Erro
   return ERRORS[code as ErrorCode] ?? UNKNOWN_ERROR;
 }
 
+/**
+ * The same, but allowed to use what the referee actually said.
+ *
+ * `protocol.ts` is clear that `WireError.message` is developer-facing and must
+ * never be shown raw *in place of* a mapped sentence. That rule exists because
+ * most of these messages are diagnostics. Two are not, and discarding them
+ * costs the player the only actionable information in the failure:
+ *
+ *  - `PEER_UNREACHABLE` is written as player-facing prose and distinguishes
+ *    "nobody configured a TURN relay" (a deployment fix, which will never
+ *    resolve on retry) from "a relay is configured but no path worked" (which
+ *    can be transient). Our mapped sentence cannot tell those apart, so here
+ *    the referee's wording *replaces* it.
+ *  - `SIGNALING_FAILED` embeds the server's own words verbatim, which is the
+ *    difference between "my server is misconfigured" and "bad luck" — but it is
+ *    unmistakably developer register and sometimes long. It goes underneath,
+ *    muted, with our sentence still leading.
+ *
+ * Everything else keeps the mapped copy and drops the diagnostic entirely.
+ */
+export function describeWireError(error: {
+  code: ErrorCode | string;
+  message?: string;
+} | null | undefined): ErrorCopy & { technical?: string } {
+  const base = describeError(error?.code);
+  const message = error?.message?.trim();
+  if (!message) return base;
+
+  if (error?.code === 'PEER_UNREACHABLE') {
+    // Earned the main line: it names the cause and the two causes need
+    // different fixes by different people.
+    return { ...base, detail: message };
+  }
+  if (error?.code === 'SIGNALING_FAILED') {
+    return { ...base, technical: message };
+  }
+  return base;
+}
+
+/**
+ * True when the failure is a missing TURN relay — a deployment problem that
+ * retrying cannot fix, so the only useful offer is a different backend.
+ *
+ * Matched on the message because both branches share the `PEER_UNREACHABLE`
+ * code; there is no discriminator on the wire. Deliberately conservative: a
+ * miss just means we offer the switch anyway, which is never wrong for this
+ * code — switching backends resolves the transient branch too, it is merely
+ * heavier than a retry would have been.
+ */
+export function isMissingRelay(message: string | undefined): boolean {
+  return /no TURN relay is configured/i.test(message ?? '');
+}
+
 /* -------------------------------------------------------------------------- *
  * Connection
  * -------------------------------------------------------------------------- */

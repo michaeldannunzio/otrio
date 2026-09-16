@@ -42,11 +42,35 @@ export const useTransportHolder = create<TransportHolder>()((setState) => ({
   setBootError: (bootError) => setState({ bootError, configured: false, transport: null }),
 }));
 
-/** Install the transport. Called once during app boot. */
+/**
+ * Install the transport. Called once during app boot.
+ *
+ * Disposing a replaced instance is correct *here* -- installing a genuinely
+ * different transport means the old one is unreachable and would leak its
+ * socket and timers.
+ *
+ * What must NOT happen is reaching for this to recover from a failure.
+ * `ConnectionStatus.failed` is recoverable: `connect`, `createRoom` and
+ * `joinRoom` all move out of it on the same instance. Building a fresh
+ * transport to "retry" would throw away the identity continuity that lets a
+ * reconnect reclaim a held seat -- so pressing "try again" would silently cost
+ * the player their seat, and the symptom would look exactly like
+ * `reconnectGraceMs` misbehaving. See `retryConnection` below.
+ */
 export function setTransport(transport: Transport | null): void {
   const previous = useTransportHolder.getState().transport;
   if (previous && previous !== transport) previous.dispose();
   useTransportHolder.getState().setTransport(transport);
+}
+
+/**
+ * Recover from a failed link, keeping the same identity.
+ *
+ * Reuses the existing instance on purpose. `dispose()` is idempotent and safe,
+ * so replacing it would not throw -- it would just quietly lose the seat.
+ */
+export async function retryConnection(): Promise<CommandResult<void>> {
+  return runCommand((t) => t.connect());
 }
 
 /** Record that no backend could be constructed, so the UI can say why. */

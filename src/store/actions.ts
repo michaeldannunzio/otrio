@@ -243,6 +243,29 @@ export async function placePiece(
 }
 
 /* -------------------------------------------------------------------------- *
+ * Backend
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Switch to the hosted backend and start again.
+ *
+ * Offered when a peer-to-peer connection cannot be established. The common
+ * cause is that no TURN relay is configured, which is a deployment problem the
+ * player cannot fix and retrying will never resolve -- so the only useful thing
+ * to offer is a route that does not need one.
+ *
+ * Reloads rather than hot-swapping the transport. The transport is built once
+ * at boot, and this only ever fires from the home screen with no room to lose,
+ * so a reload is the honest implementation: it cannot leave a half-disposed
+ * instance behind, and `rememberTransportKind` makes the choice stick.
+ */
+export async function switchToHostedBackend(): Promise<void> {
+  const { rememberTransportKind } = await import('../net');
+  rememberTransportKind('hosted');
+  window.location.reload();
+}
+
+/* -------------------------------------------------------------------------- *
  * Device feedback
  * -------------------------------------------------------------------------- */
 

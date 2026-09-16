@@ -66,6 +66,33 @@
  * because the shadows in question are only ~4 mm long.
  *
  * Change `keyDirection` and you may need to change `shadowBounds` with it.
+ *
+ * ============================================================================
+ * THE DARK-THEME BOARD EDGE
+ * ============================================================================
+ *
+ * Board-against-cloth is only 1.52:1 in dark theme (2.16:1 in light). There is
+ * no cloth colour that fixes it — the board sits at L* 31.1, so a darker cloth
+ * cannot reach 3:1 at all, and a cloth lighter than the board reads backwards
+ * in a dark theme. So the slab's edge is carried by shading, not by albedo.
+ *
+ * Two mechanisms carry it, and they behave differently between themes. Worth
+ * writing down because the obvious guess is wrong:
+ *
+ *   CAST SHADOW — unchanged. Shadow visibility is a ratio, (key + fill) / fill,
+ *   not an absolute. Light is 2.28:1 and dark is 2.33:1, because the dark
+ *   preset drops the fill (env + hemi + ambient + rim: 1.96 -> 1.39) in step
+ *   with the key (2.5 -> 1.85). Reasoning from key intensity alone says the
+ *   dark shadow is 26% weaker; it is not, it is marginally stronger.
+ *
+ *   CHAMFER HIGHLIGHT — genuinely dimmer, 0.73x, because a specular/diffuse
+ *   response to the key scales with the key and nothing compensates.
+ *
+ * So the residual risk in dark theme is the lit edge, not the shadowed one. If
+ * a rendered frame shows the board dissolving into the cloth there, reach for
+ * `keyIntensity` or a shallower `keyDirection` (a grazier angle across the
+ * chamfer) before retinting the cloth — the cloth cannot solve it and the
+ * shadow is not the problem.
  */
 
 import * as React from 'react';
@@ -92,16 +119,17 @@ export interface LightingPreset {
   /**
    * Canvas clear colour, and by default the fog colour too.
    *
-   * These MIRROR `styles/tokens.ts`'s `sceneBg`, which is canonical — it is
-   * what the CSS behind and around the canvas uses, and any disagreement shows
-   * up as a hard seam at the canvas edge. We cannot import it (this directory
-   * takes theme input as props and never reads theme state), so the safest
-   * wiring is for the host to pass it explicitly and make the question moot:
+   * `styles/tokens.ts`'s `sceneBg` is canonical — it is what the CSS behind and
+   * around the canvas paints, and any disagreement is a hard seam at the canvas
+   * edge. The app passes it explicitly, so the match is structural rather than
+   * an agreement between two files:
    *
-   *     const scene = useSceneTheme();
-   *     <Scene lighting={{ background: scene.background, fog: scene.fog }} />
+   *     lighting={{ background: scene.background, fog: scene.fog }}   // BoardStage
    *
-   * Until it does, these defaults match tokens.ts as of writing.
+   * These values are therefore a FALLBACK for using `<Scene>` outside the app —
+   * tests, harnesses, anything without the theme provider — and not the app's
+   * source of truth. They mirror tokens.ts as of writing; if they ever drift,
+   * the app is unaffected and only standalone callers see it.
    */
   background: string;
   exposure: number;

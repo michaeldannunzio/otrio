@@ -45,6 +45,7 @@ export {
   getTransport,
   setTransport,
   setTransportBootError,
+  retryConnection,
   runCommand,
   shallowEqual,
   useNet,

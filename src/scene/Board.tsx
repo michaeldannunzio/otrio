@@ -945,6 +945,14 @@ export interface BoardProps {
    * small inlaid bar is rendered at each arm tip so a player can find their own
    * side even before any piece is placed. Off by default — the palette belongs
    * to the theming agent, not to me.
+   *
+   * PASS `players[i].rim`, NOT `players[i].base`. The bar is inlaid in the
+   * board slab, so its backdrop is BOARD_TINTS, and it has no outline of its
+   * own to fall back on. Against the board the four `base` colours measure
+   * 1.26 / 2.39 / 5.26 / 3.47 — purple's marker would be all but invisible.
+   * The `rim` set is guaranteed to clear 3:1 against any board at or below
+   * `RIM_BOARD_CEILING_LSTAR`, which is exactly this problem, and measures
+   * 3.36-4.70 here.
    */
   armColors?: readonly [string, string, string, string] | null;
 

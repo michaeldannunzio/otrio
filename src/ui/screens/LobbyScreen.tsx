@@ -243,13 +243,16 @@ function SeatRow({
      * with the condition that makes it true.
      */
     const needed = playersNeededForSeat(seat);
+    // "4 or more" is silly when 4 is the maximum. Say "if 4 play" on the last
+    // seat and keep "or more" where there genuinely is a more.
+    const condition = needed >= MAX_PLAYERS ? `if ${needed} play` : `if ${needed} or more play`;
     return (
       <li className={cx('o-seat o-seat--empty', colourClass(colour))}>
         <ColourBadge colour={colour} provisional />
         <span className="o-seat__body">
           <span className="o-seat__name">Open seat</span>
           <span className="o-seat__meta">
-            {`Seat ${seat + 1} — ${colourLabel(colour)} if ${needed} or more play`}
+            {`Seat ${seat + 1} — ${colourLabel(colour)} ${condition}`}
           </span>
         </span>
       </li>

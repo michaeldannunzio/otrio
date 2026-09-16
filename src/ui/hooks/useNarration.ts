@@ -1,7 +1,14 @@
 import { useEffect } from 'react';
 
-import { buzz, getTransport, playerBySeat, ui, useTransportHolder } from '../../store';
-import { CELL_NAME, describeError, describeWin, SIZE_LABEL } from '../lib/copy';
+import {
+  buzz,
+  getTransport,
+  playerBySeat,
+  switchToHostedBackend,
+  ui,
+  useTransportHolder,
+} from '../../store';
+import { CELL_NAME, describeError, describeWireError, describeWin, SIZE_LABEL } from '../lib/copy';
 
 /**
  * Turns transport events into things a player can see and hear.
@@ -158,18 +165,24 @@ export function useNarration(): void {
 
     off.push(
       transport.on('error', (error) => {
-        const copy = describeError(error.code);
+        const copy = describeWireError(error);
+        const peerFailure =
+          error.code === 'PEER_UNREACHABLE' || error.code === 'SIGNALING_FAILED';
         ui.toast({
           tone: error.code === 'PROTOCOL_MISMATCH' ? 'danger' : 'warning',
           title: copy.title,
           detail: copy.detail,
-          // A fatal error must not time out from under the player.
-          timeout: copy.retry ? 6000 : null,
+          technical: copy.technical,
+          // A fatal error must not time out from under the player, and neither
+          // should one carrying an action they might want to read first.
+          timeout: peerFailure || !copy.retry ? null : 6000,
           key: `err-${error.code}`,
           action:
             error.code === 'PROTOCOL_MISMATCH'
               ? { label: 'Reload', run: () => window.location.reload() }
-              : undefined,
+              : peerFailure
+                ? { label: 'Use hosted', run: () => void switchToHostedBackend() }
+                : undefined,
         });
       }),
     );

@@ -8,13 +8,14 @@ import {
   useNet,
   usePrefs,
   useTransportHolder,
+  switchToHostedBackend,
   useUi,
   variantsSupported,
   withVariants,
 } from '../../store';
 import type { VariantOptions } from '../../store';
 import { MAX_NAME_LENGTH, MAX_PLAYERS, MIN_PLAYERS } from '../../net/protocol';
-import { describeError } from '../lib/copy';
+import { describeWireError, isMissingRelay } from '../lib/copy';
 import { isEnterableRoomCode } from '../lib/roomCode';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Field, Segmented, Switch } from '../components/primitives';
@@ -45,7 +46,12 @@ export function HomeScreen() {
   const [allowSpectators, setAllowSpectators] = useState(true);
   const [variants, setVariants] = useState<VariantOptions>(DEFAULT_VARIANTS);
   const [busy, setBusy] = useState<null | 'create' | 'join'>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    text: string;
+    offerHosted: boolean;
+    /** False when retrying provably cannot help, e.g. no TURN relay exists. */
+    offerRetry: boolean;
+  } | null>(null);
   const [codeError, setCodeError] = useState<string | null>(null);
 
   useScreenFocus(headingRef, 'home');
@@ -70,8 +76,19 @@ export function HomeScreen() {
     );
     setBusy(null);
     if (!result.ok) {
-      const copy = describeError(result.error.code);
-      setError(`${copy.title}. ${copy.detail}`);
+      const copy = describeWireError(result.error);
+      const peerFailure =
+        result.error.code === 'PEER_UNREACHABLE' || result.error.code === 'SIGNALING_FAILED';
+      setError({
+        text: `${copy.title}. ${copy.detail}`,
+        // Switching backends resolves every peer-to-peer failure, so it is
+        // never the wrong offer for one.
+        offerHosted: peerFailure,
+        // But "try again" is only honest when trying again could work. With no
+        // TURN relay configured there is nothing to retry into -- that is a
+        // deployment fix, and a retry button would just be a button that fails.
+        offerRetry: copy.retry && !isMissingRelay(result.error.message),
+      });
     }
   }
 
@@ -86,7 +103,7 @@ export function HomeScreen() {
     const result = await joinRoom(code);
     setBusy(null);
     if (!result.ok) {
-      const copy = describeError(result.error.code);
+      const copy = describeWireError(result.error);
       setCodeError(`${copy.title}. ${copy.detail}`);
       codeRef.current?.focus();
     }
@@ -189,9 +206,23 @@ export function HomeScreen() {
             </div>
           ) : null}
           {error ? (
-            <p className="o-inlineError" role="alert">
-              {error}
-            </p>
+            <div role="alert">
+              <p className="o-inlineError">{error.text}</p>
+              {error.offerRetry ? (
+                <Button block busy={busy === 'create'} onClick={onCreate}>
+                  Try again
+                </Button>
+              ) : null}
+              {error.offerHosted ? (
+                <Button
+                  variant={error.offerRetry ? 'ghost' : 'secondary'}
+                  block
+                  onClick={() => void switchToHostedBackend()}
+                >
+                  Try the hosted game instead
+                </Button>
+              ) : null}
+            </div>
           ) : null}
           <div className="o-home__actions">
             <Button variant="primary" size="lg" block busy={busy === 'create'} disabled={disabled} onClick={onCreate}>

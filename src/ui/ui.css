@@ -581,6 +581,21 @@
   color: var(--text-secondary);
 }
 
+/*
+ * The server's own words, for the two codes where they carry the only
+ * actionable information. Muted, smaller, and never the leading line -- this is
+ * developer register and `protocol.ts` is explicit that it must not replace a
+ * mapped sentence.
+ */
+.o-toast__technical {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-snug);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 .o-toast__action {
   flex: none;
   min-height: var(--hit-min);

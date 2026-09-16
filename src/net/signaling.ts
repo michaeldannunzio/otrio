@@ -26,6 +26,15 @@
  * perfectly in testing and fail in every interesting real-world case.
  */
 
+// The ONE room-code rule, imported rather than reimplemented. This module used
+// to carry a lookalike (upper-case and strip, but no confusable folding, and it
+// kept hyphens), which agreed with the real rule often enough to look correct.
+// Two peers disagreeing by one character land in two private rooms, each
+// waiting for the other — and that presents as NAT traversal failing, which is
+// debugged nothing like a typo. `protocol.ts` has no imports of its own, so
+// this stays loadable from a browser, a Worker or Node.
+import { normalizeRoomCode } from './protocol';
+
 /* ------------------------------------------------------------------ *
  * Identity
  * ------------------------------------------------------------------ */
@@ -66,10 +75,11 @@ function randomId(len: number): string {
   return out;
 }
 
-/** Room codes people have to read aloud across a table. No ambiguous glyphs. */
-export function randomRoomCode(): string {
-  return randomId(6).toUpperCase();
-}
+// `randomRoomCode` used to live here and is deleted: nothing called it, and its
+// alphabet included `i` and `u`, so it minted codes that `normalizeRoomCode`
+// would fold to something else — a generator whose output did not survive the
+// project's own normalisation. `mintRoomCode` in rtcTransport.ts draws from
+// ROOM_CODE_ALPHABET and round-trips.
 
 /* ------------------------------------------------------------------ *
  * Wire protocol (client <-> signalling server)
@@ -313,7 +323,7 @@ export class WebSocketSignaling implements Signaling {
 
   constructor(opts: SignalingOptions) {
     this.url = opts.url;
-    this.room = normalizeRoom(opts.room);
+    this.room = normalizeRoomCode(opts.room);
     this.selfId = opts.peerId ?? localPeerId();
     this.name = opts.name;
     this.pingIntervalMs = opts.pingIntervalMs ?? 25_000;
@@ -628,7 +638,7 @@ export class BroadcastChannelSignaling implements Signaling {
   private lastSeen = new Map<PeerId, number>();
 
   constructor(opts: SignalingOptions) {
-    this.room = normalizeRoom(opts.room);
+    this.room = normalizeRoomCode(opts.room);
     this.selfId = opts.peerId ?? localPeerId();
     this.name = opts.name;
     const base = opts.url.startsWith('broadcast:') ? opts.url.slice('broadcast:'.length) : 'otrio';
@@ -736,9 +746,4 @@ export function createSignaling(opts: SignalingOptions): Signaling {
   return opts.url.startsWith('broadcast:')
     ? new BroadcastChannelSignaling(opts)
     : new WebSocketSignaling(opts);
-}
-
-/** Room codes are case-insensitive and whitespace-tolerant; people type these. */
-export function normalizeRoom(room: string): string {
-  return room.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
 }

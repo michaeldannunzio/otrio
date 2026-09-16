@@ -58,6 +58,12 @@ export interface Toast {
   tone: ToastTone;
   title: string;
   detail?: string;
+  /**
+   * Developer-register detail, shown muted beneath `detail`. For the two error
+   * codes whose message carries the only actionable information -- see
+   * `describeWireError`. Never shown instead of `detail`.
+   */
+  technical?: string;
   /** ms before auto-dismiss, or `null` to require a deliberate dismissal. */
   timeout: number | null;
   /** Optional single action, e.g. "Try again". */
