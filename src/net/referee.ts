@@ -44,6 +44,7 @@
 
 import {
   ALL_COLORS,
+  ALL_SEATS,
   BOARD_CELLS,
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -52,6 +53,7 @@ import {
   TIMING,
   normalizeRoomCode,
   sanitizeName,
+  toSeat,
   wireError,
   type AckMsg,
   type Capabilities,
@@ -92,7 +94,6 @@ import {
   type GameState as EngineState,
   type Move as EngineMove,
   type PlayerId as Color,
-  type SeatId,
   type Size as EngineSize,
   type SpaceIndex,
   type TurnSlot,
@@ -392,7 +393,12 @@ export class PeerReferee {
 
     const name = this.pendingNames.get(from) ?? 'Player';
     if (wantsSeat) {
-      const view = makePlayerView(from, this.lowestFreeSeat(), name, false);
+      const seat = this.lowestFreeSeat();
+      // Belt and braces with the length guard above: that one counts players,
+      // this one looks at which seats are actually occupied. They should never
+      // disagree, and if they ever do, the honest answer is still "full".
+      if (seat === null) return this.nack(from, rid, 'ROOM_FULL', 'every seat is taken');
+      const view = makePlayerView(from, seat, name, false);
       this.state = {
         ...this.state,
         players: [...this.state.players, view].sort((a, b) => a.seat - b.seat),
@@ -605,7 +611,15 @@ export class PeerReferee {
     if (eligible.length >= MIN_PLAYERS && eligible.every((p) => accepted.includes(p.playerId))) {
       // Reseat contiguously from 0: the engine indexes seats densely, so a
       // rematch after someone forfeited seat 1 must not leave a hole.
-      const reseated = eligible.map((p, i) => ({ ...p, seat: i, forfeited: false, ready: true }));
+      // `eligible` is at most MAX_PLAYERS long, so `toSeat` never fails here;
+      // keeping the player's existing seat rather than inventing one is the
+      // honest fallback if that ever stops being true.
+      const reseated = eligible.map((p, i) => ({
+        ...p,
+        seat: toSeat(i) ?? p.seat,
+        forfeited: false,
+        ready: true,
+      }));
       this.state = { ...this.state, players: reseated, rematch: null };
       // `seq` deliberately keeps counting across a rematch — clients discard
       // anything that does not move it forward, so a reset would freeze them.
@@ -628,7 +642,7 @@ export class PeerReferee {
         // close up so seats stay dense.
         const rest = this.state.players
           .filter((p) => p.playerId !== id)
-          .map((p, i) => ({ ...p, seat: i }));
+          .map((p, i) => ({ ...p, seat: toSeat(i) ?? p.seat }));
         this.state = { ...this.state, players: rest };
         this.emitEvent({ t: 'event', kind: 'playerLeft', playerId: id, name: player.name, permanent: true });
         if (id === this.state.hostPlayerId) this.reassignHostFlag();
@@ -669,7 +683,7 @@ export class PeerReferee {
         return true;
       }
       if (this.game) {
-        this.game = withdrawSeat(this.game, players[idx].seat as SeatId);
+        this.game = withdrawSeat(this.game, players[idx].seat);
         const snap = toGameSnapshot(this.game);
         const finished = snap.phase === 'finished';
         this.state = {
@@ -755,10 +769,33 @@ export class PeerReferee {
     // along with the next real change.
   }
 
-  private lowestFreeSeat(): Seat {
-    const taken = new Set(this.state.players.map((p) => p.seat));
-    for (let i = 0; i < this.state.maxPlayers; i++) if (!taken.has(i)) return i;
-    return this.state.players.length;
+  /**
+   * The lowest unoccupied seat, or `null` when there isn't one.
+   *
+   * `null` rather than a fallback seat, for the same reason `toSeat` returns
+   * `null` rather than asserting: there is no correct seat to invent here. The
+   * previous fallback returned `players.length` — which, in the only state that
+   * could reach it, is `4`, and 4 is not a seat. Narrowing `Seat` from `number`
+   * is what made that visible.
+   *
+   * Returning `0` instead would be worse than the bug it replaced: seat 0 is
+   * occupied in every state that reaches this line, so it would seat two people
+   * on one seat and hand the engine a board whose pieces have ambiguous owners
+   * — silent corruption, in the one component that is the sole authority for
+   * everyone at the table. Throwing would be loud but lands in a data-channel
+   * message handler with no supervisor above it on a P2P host, taking the room
+   * down for everyone over a condition the caller can handle cleanly.
+   *
+   * So neither: the caller turns `null` into `ROOM_FULL`, which is a normal,
+   * already-tested protocol reply. That also makes "the room is full" true in
+   * exactly one place instead of two that can drift apart.
+   */
+  private lowestFreeSeat(): Seat | null {
+    const taken = new Set<number>(this.state.players.map((p) => p.seat));
+    for (const seat of ALL_SEATS) {
+      if (seat < this.state.maxPlayers && !taken.has(seat)) return seat;
+    }
+    return null;
   }
 
   private nextDeadline(): number | null {
@@ -901,7 +938,7 @@ export function rehydrateEngine(room: RoomState): EngineState {
 
   // Withdrawal removes slots from the rotation; it is not just a flag. Replay
   // that transform so the recovered turn index lands in the right cycle.
-  const withdrawn = snap.forfeitedSeats as SeatId[];
+  const withdrawn = snap.forfeitedSeats;
   const config: EngineConfig = withdrawn.length
     ? Object.freeze({
         ...base,
@@ -925,7 +962,7 @@ export function rehydrateEngine(room: RoomState): EngineState {
     config,
     board: boardFromJSON(snap.board),
     turnIndex,
-    currentSeat: (slot?.seat ?? snap.turn) as SeatId,
+    currentSeat: slot?.seat ?? snap.turn,
     currentPlayer: (due[0] ?? slot?.colors[0] ?? 0) as Color,
     playableColors: Object.freeze((due.length ? [...due] : [...(slot?.colors ?? [])]) as Color[]),
     status: snap.phase === 'finished' ? (snap.isDraw ? 'draw' : 'won') : 'playing',

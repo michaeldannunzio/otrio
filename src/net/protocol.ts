@@ -98,8 +98,42 @@ export type RoomCode = string;
  * the lifetime of the room.
  *
  * A seat is a *person*. It is not what owns a piece — see `PlayerColor`.
+ *
+ * **Narrow on purpose, and narrow to the same shape as `PlayerColor`.** This
+ * used to be `number` while `PlayerColor` was `0|1|2|3`, and that asymmetry was
+ * not harmless: it meant a seat could be passed anywhere a colour was wanted
+ * with nothing to stop it. A piece prop documented as "a seat index" quietly
+ * carried a colour instead, and the compiler had no way to tell the two apart,
+ * so the pieces painted in the wrong player's colour and nothing threw.
+ *
+ * Making both literal unions costs no branding machinery and makes them
+ * non-interchangeable in the one direction that matters. It does mean an index
+ * has to be narrowed before it can become a seat — use `toSeat`, and do not
+ * reach for `as Seat`, which is the cast-instead-of-check that this change
+ * exists to remove.
  */
-export type Seat = number;
+export type Seat = 0 | 1 | 2 | 3;
+
+/** Every seat, in order. Iterate this rather than counting to `MAX_PLAYERS`. */
+export const ALL_SEATS: readonly Seat[] = [0, 1, 2, 3];
+
+/** True if `v` is a valid seat index. */
+export function isSeat(v: unknown): v is Seat {
+  return v === 0 || v === 1 || v === 2 || v === 3;
+}
+
+/**
+ * Narrow an arbitrary index to a `Seat`, or `null` when it is out of range.
+ *
+ * Returning `null` rather than asserting is the point: an index that is not a
+ * seat is a bug somewhere upstream, and a cast would carry it silently into the
+ * rendering layer as a wrong-coloured piece. Callers that know the index is in
+ * range should still go through here and say *why* it is in range at the call
+ * site, which is cheaper to check later than a bare `as`.
+ */
+export function toSeat(n: number): Seat | null {
+  return isSeat(n) ? n : null;
+}
 
 /**
  * A colour: one set of nine pieces (three of each size).

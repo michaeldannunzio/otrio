@@ -24,15 +24,64 @@ There is a third requirement that is easy to miss:
    Every host below terminates TLS for you, which is the main reason deploying
    is *easier* than testing over your LAN.
 
-## Recommended: one container, one origin
+## ⚠️ Do not deploy yet — the static half is not wired up
 
-All three configs in this repo deploy the same shape: a single container that
-serves `dist/` **and** the WebSocket endpoint from the same origin.
+**This section previously described a single container serving both `dist/` and
+the WebSocket endpoint. The server does not serve `dist/`, so a deploy in that
+shape would start cleanly, pass its health check, hold WebSocket connections —
+and return 404 for the page itself.**
 
-Keeping them together is worth doing deliberately. It gives you one hostname to
-read out loud, one certificate, no CORS policy, and no chance of a `https://`
-page trying to open a `ws://` socket (browsers block that as mixed content —
-it must be `wss://`).
+Verified in `server/src/index.ts`: it reads no `OTRIO_STATIC_DIR`, touches the
+filesystem for nothing, and its HTTP handler answers exactly `/healthz`,
+`/health` and `/` (a plain-text endpoint listing), 404ing everything else. That
+is a deliberate property, not an oversight — it is documented there as what
+keeps the service safe on read-only and ephemeral filesystems.
+
+The failure mode is nasty precisely because every signal says healthy. Nothing
+in CI catches it, because CI never deploys.
+
+The `OTRIO_STATIC_DIR` values still set in `Dockerfile`, `fly.toml` and
+`render.yaml` are inert. They are left in place because they cost nothing and
+are needed if the decision below goes the first way; they are not doing
+anything today.
+
+### The decision
+
+Which side moves is an open question, and it is a product and operations call
+rather than a purely technical one:
+
+1. **The server grows static serving.** One deployable, one `fly deploy`. Real
+   work though, not a flag: SPA fallback so deep links do not 404, correct MIME
+   types, cache headers that do not pin a stale `index.html`, and path
+   traversal safety.
+2. **Split the topology.** Static on the platform's static hosting or a CDN,
+   the server for sockets only, the client pointed at it with
+   `VITE_OTRIO_SERVER_URL`. Architecturally cleaner — each deployable does one
+   job — and it is already the shape the "About Vercel" section below
+   describes. Costs two services to set up and keep in sync, a CORS allowlist
+   via `OTRIO_ALLOWED_ORIGINS`, and note that `VITE_*` variables are baked in
+   at build time, so changing the socket URL means a rebuild.
+3. **A static layer in front**, where the platform provides one, proxying
+   `/ws`, `/signal` and `/healthz` through.
+
+Worth correcting one argument, because it is doing more work than it should:
+the read-only-and-ephemeral property is not actually threatened by option 1.
+Serving `dist/` is *reading* files baked into the container image. A read-only
+filesystem permits reads, and an ephemeral one loses writes, not image
+contents. What option 1 genuinely costs is scope — the server takes on a second
+job, and path traversal becomes an attack surface that has to be handled
+correctly rather than not existing.
+
+One thing that is **not** a differentiator: both options give players a single
+URL to share. Under option 2 the socket hostname is internal, so the
+"one hostname to read out loud" benefit survives either way.
+
+## The intended shape: one origin
+
+Once the above is resolved, the target is a single origin serving the page and
+the socket. That gives one certificate, no CORS policy, and no chance of a
+`https://` page trying to open a `ws://` socket (browsers block that as mixed
+content — it must be `wss://`).
 
 | Host | Config file | Scales to zero | Notes |
 |---|---|---|---|
@@ -91,7 +140,7 @@ That works, but understand what you are taking on:
 
 - **Two origins.** The page is served from `otrio.vercel.app`, the socket lives
   at `otrio.fly.dev`. The client must be told the socket URL explicitly
-  (`VITE_SERVER_URL`) instead of using a same-origin relative `/ws`.
+  (`VITE_OTRIO_SERVER_URL`) instead of using a same-origin relative `/ws`.
 - **CORS**, for any plain HTTP endpoints the server exposes. The WebSocket
   handshake itself is not subject to CORS, but it *is* subject to the server's
   own `Origin` checking — so the server has to allow the Vercel hostname.
@@ -113,11 +162,32 @@ nothing connects, check these first:
 | Variable | Meaning |
 |---|---|
 | `PORT` | Port to bind. **Injected by the host.** Binding a hardcoded port instead is the single most common reason a first deploy fails its health check. |
-| `OTRIO_STATIC_DIR` | Directory of built frontend files to serve. Set to `/app/dist` in the container. If unset, the server should serve the socket only. |
+| `OTRIO_STATIC_DIR` | **Not implemented — inert.** Set in `Dockerfile`/`fly.toml`/`render.yaml`, read by nothing. See the decision at the top of this document before relying on it. |
 | `NODE_ENV` | `production`. |
 
 Bind to `0.0.0.0`, not `127.0.0.1` — inside a container, localhost is not
 reachable from the platform's proxy.
+
+### One service, two protocols
+
+The single port now serves two unrelated WebSocket protocols, routed by path.
+Any proxy in front must pass both through as upgrades, and must not rewrite,
+buffer or path-strip either:
+
+| Path | Protocol |
+|---|---|
+| `/` or `/ws` | Authoritative game socket (hosted backend). |
+| `/signal` | WebRTC signalling relay (peer-to-peer backend). |
+| `/healthz` | Plain HTTP health check. |
+
+Any other path is refused at the upgrade with a 404, deliberately: a signalling
+client pointed at a mis-configured proxy gets a clean connection failure instead
+of a game socket answering its frames with a protocol error, which is a much
+faster thing to diagnose.
+
+The relay holds no game state — it is a room-scoped message relay that never
+sees a move — so a peer-to-peer deployment is bounded by peers connected, not by
+game activity.
 
 ## WebRTC, STUN and TURN
 
