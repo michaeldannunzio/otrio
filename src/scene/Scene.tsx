@@ -41,8 +41,14 @@
  *          runs. It self-terminates. CameraRig.tsx does exactly this for its
  *          intro and parallax; copy that shape.
  *
- *      (b) If your animation system cannot cooperate, flip the whole scene to
- *          continuous while it runs:
+ *          The animation module already does this — `animation/AnimationDriver`
+ *          owns the only useFrame in that system and pumps invalidate() itself.
+ *          Mount it through the `frameDriver` prop so it lands first:
+ *
+ *            <Scene frameDriver={<AnimationDriver />} ... />
+ *
+ *      (b) If some other animation system cannot cooperate, flip the whole
+ *          scene to continuous while it runs:
  *
  *            <Scene animating={store.isAnimating} />
  *
@@ -69,12 +75,16 @@
  * Target: four mid-range phones, 60 fps while a piece is in motion, 0 fps and
  * 0 GPU work when idle.
  *
- *   Draw calls (this module's contribution)      5
- *     table top, table body, board slab, 21 machined targets (merged into one
+ *   Draw calls (this module's contribution)      4
+ *     table cloth, board slab, all 21 machined targets (merged into a single
  *     mesh), playing-area outline. Arm colour bars add 4 when enabled. The 21
  *     pointer targets add ZERO — their material is `visible: false`, so the
  *     renderer skips them entirely while the raycaster still sees them.
- *   Triangles                                    ~40k, all static, no skinning
+ *   Triangles                                    32k low tier / 50k high tier,
+ *                                                all static, no skinning; the
+ *                                                machined recesses are ~95% of
+ *                                                it and are one buffer
+ *   Buffer memory                                1.7 MB low / 2.6 MB high
  *   Shadow casters                               1 mesh (the slab) + pieces
  *   Shadow-mapped lights                         1
  *   Texture memory                               3 surfaces x 3 maps, 512px on
@@ -232,6 +242,16 @@ export interface SceneProps {
   board?: Partial<BoardProps>;
   table?: Partial<TableProps>;
 
+  /**
+   * Mounted as the very first child of the canvas, before any light, camera or
+   * geometry. This is where `<AnimationDriver />` goes: it documents that it
+   * must be the first child so that its priority-0 useFrame subscribes before
+   * anything that might read the transforms it writes.
+   *
+   *     <Scene frameDriver={<AnimationDriver />} ... />
+   */
+  frameDriver?: React.ReactNode;
+
   /** Pieces and anything else in board-local space. */
   children?: React.ReactNode;
   /** Anything that must NOT turn with the board. */
@@ -304,6 +324,7 @@ function SceneContents({
   camera,
   board,
   table,
+  frameDriver,
   children,
   worldChildren,
   onFraming,
@@ -315,6 +336,9 @@ function SceneContents({
 
   return (
     <BoardFrameContext.Provider value={frame}>
+      {/* First, before any useFrame of ours. See SceneProps.frameDriver. */}
+      {frameDriver}
+
       <TextureSetup maxAnisotropy={settings.maxAnisotropy} />
       <RepaintOnTextureLoad />
 
@@ -345,6 +369,7 @@ function SceneContents({
       <group name="board-frame" rotation={[0, yaw, 0]}>
         <Board
           radialSegments={settings.radialSegments}
+          theme={theme}
           armColors={armColors}
           interactive={interactive}
           pickable={pickable}
@@ -390,6 +415,7 @@ export function Scene({
   camera,
   board,
   table,
+  frameDriver,
   children,
   worldChildren,
   onFraming,
@@ -458,6 +484,7 @@ export function Scene({
         camera={camera}
         board={board}
         table={table}
+        frameDriver={frameDriver}
         worldChildren={worldChildren}
         onFraming={onFraming}
       >

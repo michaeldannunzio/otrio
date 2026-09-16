@@ -89,10 +89,13 @@
  * There is no CSG here and no boolean subtraction. The board is two meshes:
  *
  *   1. The slab: one ExtrudeGeometry of the rounded plus outline, chamfered
- *      top and bottom. ~600 triangles. This is the shadow caster.
+ *      top and bottom. 860 triangles. This is the shadow caster.
  *   2. The pocket field: all 21 machined targets, generated as surfaces of
- *      revolution and merged into ONE BufferGeometry. Each target sits
- *      POCKET_LIFT (0.6 mm, sub-pixel on any screen) above the slab top with
+ *      revolution and merged into ONE BufferGeometry — 30k triangles at 40
+ *      radial segments, 48k at 64, in a single 1.7-2.6 MB buffer and a single
+ *      draw call. That is the bulk of the scene's geometry and it is worth it:
+ *      63 real recesses are the whole reason the board reads as an object.
+ *      Each target sits POCKET_LIFT (0.4 mm, sub-pixel on any screen) above the slab top with
  *      its outer edge chamfered down into the slab, so no two surfaces in the
  *      scene are ever coplanar and z-fighting is structurally impossible.
  *      Same material and same UV projection as the slab, so the bamboo grain
@@ -199,6 +202,85 @@ export const BOARD_EDGE_BEVEL = 0.014;
 /** Where the "playing area!" outline sits — midway between play and storage. */
 export const PLAY_OUTLINE_RADIUS = 1.56;
 export const PLAY_OUTLINE_WIDTH = 0.07;
+
+/**
+ * Light or dark. Declared here rather than in Lighting.tsx because Lighting
+ * already imports from this module, and the board needs the type too — one
+ * direction of dependency, no cycle.
+ */
+export type ThemeMode = 'light' | 'dark';
+
+/**
+ * ===========================================================================
+ * THE 3D BOARD'S TINT — canonical, and measured rather than picked
+ * ===========================================================================
+ *
+ * These multiply the carbonized-bamboo albedo from textures.ts. They are NOT
+ * the same thing as `styles/theme.ts`'s `scene.board.base`, and deliberately
+ * so: that value is an absolute flat colour for the 2D chrome that depicts the
+ * board (the text-board fallback, swatches, the CSS frame), whereas this is a
+ * multiply over a real wood scan. Feeding a near-white #f0f3f8 into
+ * `material.color` would bleach the bamboo into grey plastic and lose exactly
+ * the physicality RULES.md §9 and the brief both require.
+ *
+ * Division of ownership, so there is one source of truth for each:
+ *   - THIS is canonical for the 3D board material.
+ *   - `styles/tokens.ts` `boardBase`/`boardLine` stay canonical for 2D chrome.
+ *
+ * WHY THESE VALUES. The four player hues (purple #7237b8, red #e8501e, green
+ * #a2d733, blue #1cafd2) straddle the middle of the luminance range, so a
+ * mid-tone board is the worst possible backdrop for them — every hue lands near
+ * its luminance and the pieces stop having silhouettes in greyscale. Sweeping
+ * the bamboo hue ray and taking the worst-case piece-against-board contrast:
+ *
+ *     tint      L*     worst piece contrast
+ *     #c9a074   68.6   1.08:1   <- the obvious "carbonized bamboo" tint. Awful.
+ *     #886c4e   47.6   1.30:1
+ *     #584633   31.1   1.26:1
+ *     #3a2c1e   19.2   1.89:1
+ *     #2a2016   13.1   2.24:1
+ *     #18130e    6.2   2.60:1
+ *
+ * Monotonic: darker is better, and it keeps getting better past the point where
+ * the board stops looking like wood. So these sit at the knee — dark enough
+ * that no player hue disappears, light enough that the grain still reads.
+ *
+ * This is also the more faithful reading of the source. textures.ts's own note
+ * says carbonizing "darkens the sugars"; the deluxe board is a dark board.
+ *
+ * Dark mode goes a shade darker still, which is the opposite of what you would
+ * guess given its dimmer rig. The reason is that the theme lifts the pieces
+ * there instead — `SceneTheme.piece.emissiveIntensity` is non-zero in dark
+ * mode, specifically "so saturated colours do not sink into the dark board".
+ * The pieces get the help, so the board does not need it and can keep the
+ * contrast.
+ *
+ * Measured against what the board actually sits on, the baize (#2c6647, L* 39),
+ * both tints give the slab a 2.2:1 silhouette — a dark object on a mid cloth.
+ *
+ * NOTE THE CEILING. 2.2:1 is still below the 3:1 a silhouette needs. No board
+ * colour can fix that for four hues at once — which is precisely why
+ * `PlayerColors.rim` exists. The rim is the accessibility guarantee; the board
+ * tint only decides how much work it has to do.
+ *
+ * Measured rim contrast against these tints, for whoever owns the rim palette
+ * (purple is the binding case at both ends):
+ *
+ *                      purple   red   green   blue
+ *     light #33261a     1.65    3.15   4.39   4.37
+ *     dark  #2a2016     1.80    3.43   4.78   4.76
+ *
+ * `styles/README.md` derives dark rims against a walnut #4a3a28 board, which is
+ * not what the scene renders and never will be. That is the worst possible
+ * reference: the purple rim #602f99 is L* 31.4 and the walnut is L* 25.7, so
+ * they sit almost on top of each other at 1.23:1. Both tints above move away
+ * from it. Re-derive against these.
+ */
+export const BOARD_TINTS: Readonly<Record<ThemeMode, { base: string; line: string }>> = {
+  //                                            worst piece contrast | vs baize
+  light: { base: '#33261a', line: '#6b5336' }, //          2.06:1    |  2.16:1
+  dark: { base: '#2a2016', line: '#54402a' }, //           2.24:1    |  2.35:1
+};
 
 /**
  * Optional per-arm colour bar, in the strip of bare board between the outermost
@@ -815,7 +897,16 @@ export interface BoardProps {
    */
   radialSegments?: number;
 
-  /** Tint multiplied into the bamboo albedo. Defaults to textures.ts's carbonized tint. */
+  /**
+   * Selects the board tint from BOARD_TINTS. The board does not read theme
+   * state — Scene threads this down from its own `theme` prop.
+   */
+  theme?: ThemeMode;
+
+  /**
+   * Overrides the bamboo tint for this theme. Multiplies the albedo map, so a
+   * near-white value bleaches the wood; see BOARD_TINTS before reaching for it.
+   */
   color?: string;
 
   /**
@@ -826,7 +917,7 @@ export interface BoardProps {
    */
   armColors?: readonly [string, string, string, string] | null;
 
-  /** Tint of the engraved "playing area" outline. */
+  /** Overrides the "playing area" outline tint for this theme. */
   outlineColor?: string;
 
   /** Render the outline around the 3x3 playing area (RULES.md §1.1). */
@@ -867,9 +958,10 @@ const _localPoint = new THREE.Vector3();
 
 export function Board({
   radialSegments = 56,
+  theme = 'light',
   color,
   armColors = null,
-  outlineColor = '#4a3a28',
+  outlineColor,
   showPlayOutline = true,
   interactive = true,
   pickable = 'play',
@@ -884,8 +976,9 @@ export function Board({
   const invalidate = useThree((s) => s.invalidate);
   const boardSize = BOARD_HALF_LENGTH * 2;
 
-  const bamboo = useSurfaceMaterial('board', color ? { color } : {});
-  const engraved = useSurfaceMaterial('board', { color: outlineColor });
+  const tints = BOARD_TINTS[theme] ?? BOARD_TINTS.light;
+  const bamboo = useSurfaceMaterial('board', { color: color ?? tints.base });
+  const engraved = useSurfaceMaterial('board', { color: outlineColor ?? tints.line });
 
   const slabGeo = useGeometry(() => createBoardSlabGeometry(boardSize), [boardSize]);
 

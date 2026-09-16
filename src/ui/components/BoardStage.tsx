@@ -3,9 +3,9 @@ import type { ReactNode } from 'react';
 
 import type { SpacePointerInfo } from '../../scene/Board';
 import type { Insets } from '../../scene/CameraRig';
+import { getSceneTheme } from '../../styles/theme';
 import { interaction, placePiece, useNet, usePrefs, useUi } from '../../store';
-import { useMediaQuery } from '../lib/a11y';
-import { seatTokenIndex } from './Ring';
+
 import { Button, Spinner } from './primitives';
 
 /**
@@ -59,8 +59,10 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
 
   const seat = useNet((s) => s.seat);
   const isMyTurn = useNet((s) => s.isMyTurn);
-  const themePref = usePrefs((s) => s.theme);
-  const systemDark = useMediaQuery('(prefers-color-scheme: dark)');
+  // The resolved mode, mirrored from the theme owner. Not recomputed from the
+  // preference plus a media query: that is a second implementation of
+  // `system`, and the two can disagree for a frame after an OS flip.
+  const theme = usePrefs((s) => s.mode);
   const armedSize = useUi((s) => s.selectedSize);
 
   useEffect(() => {
@@ -69,20 +71,48 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
 
   if (!supported) return <BoardFallback reason="no-webgl" />;
 
-  const theme = themePref === 'system' ? (systemDark ? 'dark' : 'light') : themePref;
+  /*
+   * The three.js half of the theme.
+   *
+   * `getSceneTheme(mode)` rather than the `useSceneTheme()` hook: we already
+   * hold the resolved mode from the prefs mirror, so a second subscription to
+   * the same source would only add a render. It is the same lookup and returns
+   * a stable object per mode.
+   */
+  const scene = getSceneTheme(theme);
 
   return (
     <SceneBoundary>
       <Suspense fallback={<BoardLoading />}>
         <LazyScene
-          // The board turns so this seat's arm is nearest the camera. Narrowed
-          // because the protocol types a seat as a bare `number` while the scene
-          // wants `0 | 1 | 2 | 3`; spectators (null) get the north view.
-          seat={seatTokenIndex(seat) ?? 0}
+          // The board turns so this seat's arm is nearest the camera. This one
+          // really is a SEAT, not a colour -- it is about where the local player
+          // is sitting, not what they play. Narrowed inline because the protocol
+          // types a seat as a bare `number` and the scene wants `0 | 1 | 2 | 3`;
+          // spectators (null) get the north view.
+          seat={seat === 0 || seat === 1 || seat === 2 || seat === 3 ? seat : 0}
           theme={theme}
           // What the HUD is covering, so the board is fitted into what is left
           // rather than centred behind the size picker. Measured in GameScreen.
           insets={insets}
+          // Clear colour and fog straight from the token layer, so the canvas
+          // edge cannot seam against the page background. Both presets already
+          // mirror `sceneBg`, but passing it makes the match structural rather
+          // than a standing agreement between two files.
+          lighting={{ background: scene.background, fog: scene.fog }}
+          // The four storage arms, in seat order [north, east, south, west] --
+          // which is also `players` index order (0 purple/N, 1 red/E, 2 green/S,
+          // 3 blue/W). Arm accents are off by default, which leaves an *empty*
+          // arm with no colour identity at all; since the arms are how players
+          // read what everyone has left, that loses the information exactly when
+          // it matters most. Written out rather than `.map`ped because the prop
+          // is a fixed-length tuple and `map` returns `string[]`.
+          armColors={[
+            scene.players[0].base,
+            scene.players[1].base,
+            scene.players[2].base,
+            scene.players[3].base,
+          ]}
           onSpaceClick={(info: SpacePointerInfo) => {
             // Storage spaces have a null index; only the 3x3 playing area is a
             // move. `info.slot` is documented as advisory, so the ring size

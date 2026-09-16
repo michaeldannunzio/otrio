@@ -13,6 +13,7 @@
  *   - Name people, not seats. "Waiting for Sam" beats "Waiting for seat 2".
  */
 
+import { PLAYER_COLORS } from '../../net/protocol';
 import type { ErrorCode, GameEndReason, PieceSize, WinningLine } from '../../net/protocol';
 import type { ConnectionStatus, QualityGrade } from '../../net/transport';
 
@@ -306,13 +307,13 @@ export function describeWin(
   switch (line.kind) {
     case 'same-size': {
       const size = line.sizes[0] ?? 'small';
-      return `${who} ${verb} with three ${size} rings in a line.`;
+      return `${who} ${verb} with three ${size} ${PLAYER_COLORS[line.color]} rings in a line.`;
     }
     case 'ascending':
-      return `${who} ${verb} with small, medium and large in a line.`;
+      return `${who} ${verb} with ${PLAYER_COLORS[line.color]} small, medium and large in a line.`;
     case 'concentric': {
       const where = CELL_NAME[line.cells[0]] ?? 'one space';
-      return `${who} ${verb} with all three sizes nested in the ${where} space.`;
+      return `${who} ${verb} with all three ${PLAYER_COLORS[line.color]} sizes nested in the ${where} space.`;
     }
     default:
       return `${who} ${verb}.`;

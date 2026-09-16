@@ -27,6 +27,7 @@ import {
   applyThemeAttributes,
   getSceneTheme,
   getTheme,
+  runAsThemeStore,
   verifyThemeSync,
   type SceneTheme,
   type Theme,
@@ -35,7 +36,32 @@ import type { ThemeMode, ThemePreference } from '../styles/tokens'
 
 export type { ThemeMode, ThemePreference, Theme, SceneTheme }
 
-const STORAGE_KEY = 'otrio:theme-preference'
+/**
+ * THE theme preference key. There must be exactly one.
+ *
+ * Deliberately a FLAT STRING (`"dark"`), not a field inside a JSON bundle. The
+ * pre-paint script in `index.html` is the most failure-sensitive code in the
+ * app — it runs before any module, cannot import, and must never throw — so it
+ * gets one `getItem` and one comparison rather than
+ * `JSON.parse(raw).state.theme`. A bundle would couple the first paint to a
+ * store's schema version and partialise shape: rename a field and dark-mode
+ * users get a flash of light with nothing failing loudly.
+ *
+ * Writes are also atomic this way — changing the theme cannot clobber a
+ * concurrent write to some unrelated preference in a shared bundle.
+ *
+ * Absent means `system`, which is the default and needs no parsing.
+ */
+export const THEME_STORAGE_KEY = 'otrio:theme-preference'
+
+/**
+ * Legacy location: the theme field inside the app's zustand prefs bundle.
+ * Read ONCE, only when {@link THEME_STORAGE_KEY} is absent, so that anyone who
+ * already chose a theme keeps it across this consolidation. Never written.
+ */
+const LEGACY_PREFS_KEY = 'otrio.prefs.v1'
+
+const STORAGE_KEY = THEME_STORAGE_KEY
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 
 interface ThemeState {
@@ -53,16 +79,37 @@ const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefine
 const IS_DEV: boolean =
   (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false
 
+const isPreference = (v: unknown): v is ThemePreference =>
+  v === 'light' || v === 'dark' || v === 'system'
+
 function readStoredPreference(): ThemePreference {
   if (!isBrowser) return 'system'
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (raw === 'light' || raw === 'dark' || raw === 'system') return raw
+    if (isPreference(raw)) return raw
+    // Nothing of ours yet — adopt a choice made under the old prefs bundle, once.
+    const legacy = readLegacyPreference()
+    if (legacy) {
+      writeStoredPreference(legacy)
+      return legacy
+    }
   } catch {
     // Private browsing, disabled storage, or a blocked third-party context.
     // Falling back to 'system' is correct and harmless.
   }
   return 'system'
+}
+
+/** One-shot migration. Reads the old bundle; never writes to it. */
+function readLegacyPreference(): ThemePreference | null {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_PREFS_KEY)
+    if (!raw) return null
+    const theme = (JSON.parse(raw) as { state?: { theme?: unknown } })?.state?.theme
+    return isPreference(theme) ? theme : null
+  } catch {
+    return null
+  }
 }
 
 function writeStoredPreference(preference: ThemePreference): void {
@@ -95,10 +142,20 @@ function setState(next: ThemeState): void {
   ) {
     return
   }
-  const modeChanged = next.mode !== state.mode
+  const needsPaint = next.mode !== state.mode || next.preference !== state.preference
   state = next
-  if (modeChanged) applyThemeAttributes(next.mode)
+  // `data-theme-pref` has to follow the preference even when the resolved mode
+  // did not move — switching 'dark' -> 'system' on a dark OS changes nothing
+  // visually, but a settings UI still has to show the new selection.
+  if (needsPaint) paint(next)
   listeners.forEach((l) => l())
+}
+
+/** The one place the DOM is told about the theme. */
+function paint(next: ThemeState): void {
+  runAsThemeStore(() => {
+    applyThemeAttributes(next.mode, { preference: next.preference })
+  })
 }
 
 let initialised = false
@@ -116,7 +173,7 @@ export function initTheme(): void {
   const preference = readStoredPreference()
   const system = readSystemMode()
   state = { preference, system, mode: resolve(preference, system) }
-  applyThemeAttributes(state.mode)
+  paint(state)
 
   if (typeof window.matchMedia === 'function') {
     const mql = window.matchMedia(DARK_QUERY)
@@ -171,6 +228,25 @@ const getSnapshot = (): ThemeState => state
 const getServerSnapshot = (): ThemeState => state
 
 /* ───────────────────────── imperative API ─────────────────────────────── */
+/*
+ * For non-React owners — chiefly `src/store/prefsStore.ts`, which surfaces the
+ * theme in the settings UI but must NOT own it.
+ *
+ * Why this module owns the preference: `src/hooks/` is lower-level than
+ * `src/store/`, so the dependency has to point that way. A store reaching down
+ * is fine; the theme layer reaching up into app preferences is not.
+ *
+ * To delegate, a store keeps no theme state of its own and no `matchMedia`
+ * listener. It calls `setThemePreference()` on write, reads
+ * `getThemePreference()`, and mirrors with `subscribeToTheme()`:
+ *
+ *   setTheme: (theme) => setThemePreference(theme),
+ *   // once, at store creation:
+ *   subscribeToTheme(({ preference, mode }) => setState({ theme: preference, mode })),
+ *
+ * Do not also call `applyThemeAttributes` — this module already did, including
+ * `data-theme`, `data-theme-pref`, `color-scheme` and the `theme-color` meta.
+ */
 
 /** Read the resolved mode outside React (e.g. in a three.js callback). */
 export function getThemeMode(): ThemeMode {
@@ -178,9 +254,46 @@ export function getThemeMode(): ThemeMode {
   return state.mode
 }
 
+/** The unresolved choice: `'light' | 'dark' | 'system'`. */
 export function getThemePreference(): ThemePreference {
   initTheme()
   return state.preference
+}
+
+/** Everything a mirroring store needs, in one object. */
+export interface ThemeSnapshot {
+  /** The unresolved choice. */
+  preference: ThemePreference
+  /** What is actually showing. */
+  mode: ThemeMode
+  /** What the OS reports, regardless of the override. */
+  systemMode: ThemeMode
+}
+
+export function getThemeSnapshot(): ThemeSnapshot {
+  initTheme()
+  return { preference: state.preference, mode: state.mode, systemMode: state.system }
+}
+
+/**
+ * Observe theme changes from outside React. Returns an unsubscribe function.
+ *
+ * Fires for every cause: an explicit `setThemePreference`, the OS flipping
+ * while the preference is `system`, and another tab changing it. That last one
+ * is why a mirroring store must subscribe rather than just write — otherwise
+ * two tabs of the same game drift apart.
+ *
+ * The listener is NOT called on subscribe; seed with `getThemeSnapshot()`.
+ */
+export function subscribeToTheme(listener: (snapshot: ThemeSnapshot) => void): () => void {
+  initTheme()
+  const wrapped = (): void => {
+    listener({ preference: state.preference, mode: state.mode, systemMode: state.system })
+  }
+  listeners.add(wrapped)
+  return () => {
+    listeners.delete(wrapped)
+  }
 }
 
 /** Set the preference. `'system'` clears the override and follows the OS. */

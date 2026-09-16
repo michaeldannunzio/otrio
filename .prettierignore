@@ -1,0 +1,16 @@
+dist
+dist-*
+node_modules
+coverage
+server/dist
+*.tsbuildinfo
+package-lock.json
+
+# Generated, and the manifest is a provenance record — reformatting it would
+# produce a diff on every texture rebuild for no benefit.
+public/textures
+
+# docs/RULES.md is transcribed from print artwork and its line breaks are
+# deliberate; docs/TEXTURE-LICENSES.md is generated.
+docs/RULES.md
+docs/TEXTURE-LICENSES.md

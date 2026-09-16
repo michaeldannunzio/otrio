@@ -47,10 +47,12 @@ export {
 
 export {
   THEME_ATTRIBUTE,
+  THEME_PREFERENCE_ATTRIBUTE,
   applyThemeAttributes,
   getSceneTheme,
   getTheme,
   verifyThemeSync,
+  type ApplyThemeOptions,
   type EnvironmentPreset,
   type PlayerColors,
   type SceneLight,

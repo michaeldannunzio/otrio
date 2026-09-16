@@ -330,14 +330,34 @@ export const PLAYERS: readonly PlayerIdentity[] = [
   { index: 3, key: 'blue', label: 'Blue', seat: 'west', glyph: '◆', glyphLabel: 'diamond', hue: 230 },
 ] as const
 
-/** `playerColor(colors, 0, 'rim')` -> the red player's rim colour. */
+/**
+ * `playerColor(colors, 0, 'rim')` -> the purple player's rim colour.
+ *
+ * `index` is 0-based, matching `PlayerColor` in the engine: 0 purple, 1 red,
+ * 2 green, 3 blue.
+ */
 export function playerColor(colors: ColorTokens, index: PlayerIndex, role: PlayerRole = 'base'): string {
   const n = (index + 1) as 1 | 2 | 3 | 4
   const key = role === 'base' ? `player${n}` : `player${n}${role[0].toUpperCase()}${role.slice(1)}`
   return colors[key as keyof ColorTokens]
 }
 
-/** The CSS custom property name for a player role, e.g. `--player-1-rim`. */
+/**
+ * The CSS custom property name for a player role, e.g. `--player-1-rim`.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ MIND THE OFF-BY-ONE. `PlayerIndex` is 0-based, matching `PlayerColor` in   │
+ * │ the engine. The CSS variables are 1-BASED, because `--player-0` reads      │
+ * │ wrong in a stylesheet. So:                                                │
+ * │                                                                           │
+ * │     playerVar(0, 'rim')  ===  '--player-1-rim'   // both mean PURPLE      │
+ * │     playerVar(2)         ===  '--player-3'       // both mean GREEN       │
+ * │                                                                           │
+ * │ Call this function instead of interpolating the number yourself. A slip    │
+ * │ here is silent — you get another player's colour and nothing throws.       │
+ * │ Same applies to the `u-player-N` utility classes, which are also 1-based.  │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ */
 export function playerVar(index: PlayerIndex, role: PlayerRole = 'base'): string {
   const n = index + 1
   return role === 'base'

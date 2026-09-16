@@ -84,9 +84,22 @@ interface Row {
   /** 2D outward normal in the (r, y) half-plane; unit length. */
   nr: number;
   ny: number;
+  /**
+   * The same normal with creases averaged away. Shading uses `nr/ny`; an
+   * offset shell (the piece outline) has to use this one, because pushing
+   * along a creased normal splits the shell open along every chamfer.
+   */
+  snr: number;
+  sny: number;
   /** Cumulative arc length along the profile, in world units. */
   v: number;
 }
+
+/**
+ * Attribute carrying the crease-free normal, for extruding an outline shell.
+ * Named rather than `normal2` so the shader patch that reads it is greppable.
+ */
+export const OUTLINE_NORMAL_ATTRIBUTE = 'outlineNormal';
 
 const EPSILON = 1e-7;
 
@@ -173,10 +186,7 @@ export function buildLatheGeometry(
   const previousSegmentOf = (point: number): number =>
     closed ? (point - 1 + segCount) % segCount : point - 1;
 
-  const rowForSmooth = (point: number): number => {
-    const cached = smoothRowOf[point];
-    if (cached >= 0) return cached;
-
+  const smoothNormalAt = (point: number): [number, number] => {
     const prev = previousSegmentOf(point);
     const next = point < segCount ? point : -1;
 
@@ -195,20 +205,40 @@ export function buildLatheGeometry(
       // 180-degree reversal (a zero-thickness fin). Fall back to the outgoing
       // face rather than emitting a NaN normal.
       const fallback = next >= 0 ? next : prev;
-      nr = segNR[fallback];
-      ny = segNY[fallback];
-    } else {
-      nr /= len;
-      ny /= len;
+      return [segNR[fallback], segNY[fallback]];
     }
+    return [nr / len, ny / len];
+  };
 
-    rows.push({ r: pts[point].r, y: pts[point].y, nr, ny, v: cumulative[point] });
+  const rowForSmooth = (point: number): number => {
+    const cached = smoothRowOf[point];
+    if (cached >= 0) return cached;
+
+    const [nr, ny] = smoothNormalAt(point);
+    rows.push({
+      r: pts[point].r,
+      y: pts[point].y,
+      nr,
+      ny,
+      snr: nr,
+      sny: ny,
+      v: cumulative[point],
+    });
     smoothRowOf[point] = rows.length - 1;
     return smoothRowOf[point];
   };
 
   const rowForSharp = (point: number, segment: number, v: number): number => {
-    rows.push({ r: pts[point].r, y: pts[point].y, nr: segNR[segment], ny: segNY[segment], v });
+    const [snr, sny] = smoothNormalAt(point);
+    rows.push({
+      r: pts[point].r,
+      y: pts[point].y,
+      nr: segNR[segment],
+      ny: segNY[segment],
+      snr,
+      sny,
+      v,
+    });
     return rows.length - 1;
   };
 
@@ -246,6 +276,7 @@ export function buildLatheGeometry(
 
   const positions = new Float32Array(vertexCount * 3);
   const normals = new Float32Array(vertexCount * 3);
+  const outlineNormals = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
 
   for (let i = 0; i <= segments; i++) {
@@ -267,6 +298,10 @@ export function buildLatheGeometry(
       normals[idx * 3 + 0] = row.nr * sin;
       normals[idx * 3 + 1] = row.ny;
       normals[idx * 3 + 2] = row.nr * cos;
+
+      outlineNormals[idx * 3 + 0] = row.snr * sin;
+      outlineNormals[idx * 3 + 1] = row.sny;
+      outlineNormals[idx * 3 + 2] = row.snr * cos;
 
       uvs[idx * 2 + 0] = u;
       uvs[idx * 2 + 1] = row.v / worldPerTile;
@@ -301,6 +336,10 @@ export function buildLatheGeometry(
   geometry.setIndex(new BufferAttribute(indices, 1));
   geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  geometry.setAttribute(
+    OUTLINE_NORMAL_ATTRIBUTE,
+    new Float32BufferAttribute(outlineNormals, 3),
+  );
   geometry.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
   // three.js reads `aoMap` from UV channel 1 by default; same layout.
   geometry.setAttribute('uv1', new Float32BufferAttribute(uvs.slice(), 2));

@@ -34,31 +34,41 @@
 
     <script>
       /*
-       * Theme bootstrap. Runs before first paint so we never flash the wrong
-       * palette. Mirrors PREFS_STORAGE_KEY / applyTheme() in src/store/prefsStore.ts
-       * -- if you change the key or the attribute, change it in both places.
+       * Theme bootstrap. Runs before any module so a dark-mode user never sees
+       * a flash of light.
+       *
+       * The key is duplicated from `THEME_STORAGE_KEY` in src/hooks/useTheme.ts
+       * -- this is the one place that is unavoidable, because this script
+       * cannot import. Keep them matching.
+       *
+       * The value is a bare string on purpose. This is the most
+       * failure-sensitive code in the app: it must never throw, and one
+       * `getItem` plus one comparison has far less to go wrong than parsing a
+       * JSON bundle whose shape belongs to a store.
        */
       (function () {
+        var root = document.documentElement;
         try {
-          var raw = localStorage.getItem('otrio.prefs.v1');
-          var theme = raw ? (JSON.parse(raw).state || {}).theme : null;
-          if (theme !== 'light' && theme !== 'dark') theme = 'system';
-          var resolved =
-            theme === 'system'
+          var pref = localStorage.getItem('otrio:theme-preference');
+          if (pref !== 'light' && pref !== 'dark') pref = 'system';
+          var mode =
+            pref === 'system'
               ? window.matchMedia('(prefers-color-scheme: dark)').matches
                 ? 'dark'
                 : 'light'
-              : theme;
-          var root = document.documentElement;
-          root.setAttribute('data-theme', resolved);
-          root.setAttribute('data-theme-pref', theme);
-          // Also here, not just in applyTheme(): this is what stops the
-          // browser's own scrollbars and form controls flashing light.
-          root.style.colorScheme = resolved;
+              : pref;
+          root.setAttribute('data-theme', mode);
+          root.setAttribute('data-theme-pref', pref);
+          root.style.colorScheme = mode;
           var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.content = resolved === 'dark' ? '#0b0e13' : '#e8ecf3';
+          if (meta) meta.content = mode === 'dark' ? '#0b0e13' : '#e8ecf3';
         } catch (err) {
-          document.documentElement.setAttribute('data-theme', 'light');
+          /* Remove it rather than defaulting to light. With no `data-theme`,
+             tokens.css resolves dark from `prefers-color-scheme` on its own via
+             `:root:not([data-theme="light"])`, which is the right answer on a
+             dark device. Forcing 'light' here caused the exact flash this
+             script exists to prevent. */
+          root.removeAttribute('data-theme');
         }
       })();
     </script>

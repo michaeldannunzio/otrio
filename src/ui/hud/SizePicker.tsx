@@ -4,16 +4,19 @@ import { PIECE_SIZES } from '../../net/protocol';
 import type { PieceSize } from '../../net/protocol';
 import {
   alternationNote,
+  armColour,
   armSize,
   autoArmSize,
+  colourLabel,
   dueColour,
-  reserveFor,
+  reserveOfColour,
+  turnColours,
   useNet,
   usePrefs,
   useUi,
 } from '../../store';
 import { SIZE_LABEL } from '../lib/copy';
-import { RingGlyph, colourClass, colourName, cx, seatClass } from '../components/Ring';
+import { ColourBadge, RingGlyph, colourClass, cx } from '../components/Ring';
 
 /**
  * Which ring you are about to place.
@@ -37,6 +40,7 @@ export function SizePicker() {
   const moveCount = useNet((s) => s.room?.game?.moveCount ?? 0);
 
   const selected = useUi((s) => s.selectedSize);
+  const selectedColour = useUi((s) => s.selectedColour);
   const showLetters = usePrefs((s) => s.sizeLabels);
 
   // Re-arm the largest ring still held at the start of each turn, unless the
@@ -46,15 +50,41 @@ export function SizePicker() {
   }, [isMyTurn, moveCount]);
 
   if (seat === null || !room?.game) return null;
-  const reserve = reserveFor(room, seat);
-  const disabled = !isMyTurn || pendingMove !== null;
   const note = alternationNote(room, seat);
+  const offered = turnColours(room);
   const due = dueColour(room);
+  // The tray belongs to the COLOUR being placed. When the referee has left a
+  // real choice (alternation off) we show that choice first and fall back to
+  // whichever colour is currently armed.
+  const active = due ?? selectedColour ?? offered[0] ?? null;
+  const reserve = active === null ? { small: 0, medium: 0, large: 0 } : reserveOfColour(room, active);
+  const disabled = !isMyTurn || pendingMove !== null;
 
-  // In the two-colour game the picker is tinted with the colour actually due,
-  // so the control the player is about to touch agrees with the turn banner.
+  // Tinted with the colour actually being placed, so the control the player is
+  // about to touch agrees with the turn banner.
   return (
-    <div className={cx('o-sizes', due === null ? seatClass(seat) : colourClass(due))}>
+    <div className={cx('o-sizes', colourClass(active))}>
+      {offered.length > 1 && isMyTurn ? (
+        // Only reachable with strict alternation switched off. A radiogroup for
+        // the same reasons as the size picker below.
+        <div className="o-sizes__colours" role="radiogroup" aria-label="Colour to place">
+          {offered.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={active === c}
+              tabIndex={active === c ? 0 : -1}
+              className={cx('o-colourpick', colourClass(c), active === c && 'is-selected')}
+              aria-label={`Place ${colourLabel(c)}`}
+              onClick={() => armColour(c)}
+            >
+              <ColourBadge colour={c} size="sm" />
+              <span className="o-colourpick__label">{colourLabel(c)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       {/*
         A radiogroup rather than a row of toggle buttons: arrow keys move
         between the options, the group has one tab stop, and the current choice
@@ -84,7 +114,7 @@ export function SizePicker() {
             ? 'Placing your ring…'
             : 'Wait for your turn.'
           : due !== null && note
-            ? `Placing ${colourName(due)}. Pick a size, then a space.`
+            ? `Placing ${colourLabel(due)}. Pick a size, then a space.`
             : 'Pick a size, then choose a space on the board.'}
       </p>
       {note && isMyTurn ? (

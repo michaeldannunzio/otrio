@@ -93,15 +93,9 @@ export {
 
 export { makeRng, pick, randomInt, seedFromString } from './random.ts';
 
-/**
- * The referee adapter `server/src/rules.ts` binds to at startup, so the server
- * and every client referee the same rules. See `adapter.ts` for the wire
- * vocabulary mapping and for the one deliberate 2-player divergence.
+/*
+ * There is deliberately no engine -> wire projection here. `src/net/referee.ts`
+ * owns the single projection onto `GameSnapshot`, and both backends drive it.
+ * A second projection living in this module could disagree with it, so this
+ * module stays purely about the rules and knows nothing about the wire.
  */
-export {
-  referee,
-  rules,
-  toSnapshot,
-  type RefereeApplyResult,
-  type RefereeGame,
-} from './adapter.ts';

@@ -16,9 +16,17 @@ import type { CommandResult } from './transportStore';
 import { useUi } from './uiStore';
 import { usePrefs } from './prefsStore';
 import { interaction } from './interactionStore';
-import { defaultSize, reserveFor } from './selectors';
+import { defaultSize } from './selectors';
+import { coloursOfSeat, reserveOfColour, turnColours } from './colours';
 
-import type { CellIndex, CreateRoomOptions, PieceSize, RoomCode } from '../net/protocol';
+import type {
+  CellIndex,
+  CreateRoomOptions,
+  Move,
+  PieceSize,
+  PlayerColor,
+  RoomCode,
+} from '../net/protocol';
 import { normalizeRoomCode } from '../net/protocol';
 
 /* -------------------------------------------------------------------------- *
@@ -101,6 +109,16 @@ export function armSize(size: PieceSize): void {
 }
 
 /**
+ * Choose which colour to place, for the only case where it is a choice:
+ * a two-colour seat with strict alternation switched off.
+ */
+export function armColour(colour: PlayerColor): void {
+  useUi.getState().selectColour(colour);
+  // The new colour has its own tray, so the armed size may no longer exist.
+  autoArmSize();
+}
+
+/**
  * Re-arm the largest ring the local seat still holds, unless the player has
  * already chosen one deliberately this game.
  *
@@ -111,14 +129,39 @@ export function autoArmSize(): void {
   const transport = getTransport();
   const snap = transport?.getSnapshot();
   if (!snap || snap.seat === null) return;
+  const colour = resolveColour(snap.room, snap.seat);
+  if (colour === null) return;
+  // The reserve belongs to the COLOUR being placed, not to the person. In the
+  // two-player game those are different trays on alternate turns.
+  const reserve = reserveOfColour(snap.room, colour);
   const ui = useUi.getState();
-  if (ui.sizeChosenManually) {
-    // Keep their choice, unless they have run out of that size.
-    const reserve = reserveFor(snap.room, snap.seat);
-    if (reserve[ui.selectedSize] > 0) return;
-  }
-  const next = defaultSize(reserveFor(snap.room, snap.seat));
+  if (ui.sizeChosenManually && reserve[ui.selectedSize] > 0) return;
+  const next = defaultSize(reserve);
   if (next) ui.selectSize(next, false);
+}
+
+/**
+ * Which colour this seat is placing right now.
+ *
+ * Normally the referee has already decided: `turnColors` has exactly one entry
+ * on every 3-/4-player turn and on every turn of the official 2-player game,
+ * because strict alternation fixes it. It is longer only when alternation has
+ * been switched off, and then the player picks -- we honour their pick if it is
+ * actually playable and otherwise fall back to the first offered colour rather
+ * than sending something the referee will reject.
+ */
+export function resolveColour(
+  room: Parameters<typeof turnColours>[0],
+  seat: number,
+): PlayerColor | null {
+  const offered = turnColours(room);
+  if (offered.length === 1) return offered[0];
+  if (offered.length === 0) return null;
+  const chosen = useUi.getState().selectedColour;
+  if (chosen !== null && offered.includes(chosen)) return chosen;
+  // Prefer one this seat actually holds, in case `turnColors` ever widens.
+  const held = coloursOfSeat(room, seat);
+  return offered.find((c) => held.includes(c)) ?? offered[0];
 }
 
 /**
@@ -162,12 +205,22 @@ export async function placePiece(
       error: { code: 'GAME_NOT_ACTIVE', message: 'The game is not running.', retryable: false },
     };
   }
-  if (snap.seat !== null && (game.reserves[snap.seat]?.[chosen] ?? 0) <= 0) {
+  const colour = snap.seat === null ? null : resolveColour(snap.room, snap.seat);
+  if (colour === null) {
+    return {
+      ok: false,
+      error: { code: 'NOT_YOUR_TURN', message: 'No colour is due for you.', retryable: false },
+    };
+  }
+  // Reserves are indexed by colour. Indexing them by seat compiles and returns
+  // the wrong tray in a two-player game -- see colours.ts.
+  if (reserveOfColour(snap.room, colour)[chosen] <= 0) {
     return {
       ok: false,
       error: { code: 'ILLEGAL_MOVE', message: `No ${chosen} rings left.`, retryable: false },
     };
   }
+  // `!== null` rather than truthiness: colour 0 is purple and is falsy.
   if (game.board[cell]?.[chosen] !== null) {
     return {
       ok: false,
@@ -176,7 +229,12 @@ export async function placePiece(
   }
 
   buzz(12);
-  const result = await runCommand((t) => t.sendMove({ cell, size: chosen }));
+  // `color` is sent only when the referee left a genuine choice. Sending it
+  // when exactly one colour is playable is redundant, and sending one that is
+  // not in `turnColors` is rejected.
+  const move: Move = { cell, size: chosen };
+  if (turnColours(snap.room).length > 1) move.color = colour;
+  const result = await runCommand((t) => t.sendMove(move));
   if (result.ok) {
     useUi.getState().resetSizeChoice();
     interaction.get().setHover(null);

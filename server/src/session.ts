@@ -1,28 +1,37 @@
 /**
- * One connected socket.
+ * One connected socket: the pump between a WebSocket and the shared referee.
  *
  * Responsibilities, in order of importance:
  *
- *  1. Nothing reaches a `Room` until it has been validated and attributed to an
- *     authenticated identity. The seat a move applies to is taken from *this*
- *     object, never from the message — that is the whole trust boundary in one
- *     sentence.
- *  2. Every request carrying a `rid` gets exactly one `ack`, success or
- *     failure. A client that never receives an ack hangs until its own timeout,
- *     which looks like a network fault and is miserable to debug.
- *  3. The socket's lifecycle is kept out of `rooms.ts`, which should be
- *     testable without a network.
+ *  1. Nothing reaches a referee until it has been validated and attributed to
+ *     an authenticated identity. The `from` a message is handled under comes
+ *     from *this* object, never from the message — that is the whole trust
+ *     boundary in one sentence.
+ *  2. Every request carrying a `rid` gets exactly one `ack`. A client that
+ *     never receives one hangs until its own timeout, which looks like a
+ *     network fault and is miserable to debug. The referee acks everything it
+ *     handles; this file acks only what it answers itself.
+ *  3. Socket lifecycle stays out of `referee.ts`, which has to run unchanged in
+ *     a browser.
+ *
+ * WHAT THIS FILE DECIDES, AND WHAT THE REFEREE DECIDES
+ * ---------------------------------------------------
+ * Here: protocol version, message well-formedness, rate limiting, which room a
+ * connection is pointed at, and room *allocation* (a peer-to-peer referee is
+ * handed its room; a server has to mint one).
+ *
+ * There: everything about the game and the room — seats, readiness, turn order,
+ * legality, rematch, forfeits, pauses. If a rule is being decided in this file,
+ * it is in the wrong file.
  */
 
 import {
   PROTOCOL_VERSION,
-  TIMING,
   isPlausibleRoomCode,
   sanitizeName,
   wireError,
 } from '../../src/net/protocol.ts';
 import type {
-  AckResult,
   Capabilities,
   ClientMessage,
   CreateRoomOptions,
@@ -31,7 +40,7 @@ import type {
   SessionSecret,
   WireError,
 } from '../../src/net/protocol.ts';
-import type { ClientSink, Room, RoomManager, RoomResult } from './rooms.ts';
+import type { ClientSink, RoomEntry, RoomRegistry } from './rooms.ts';
 import { TokenBucket } from './util.ts';
 import type { Logger, ServerConfig } from './util.ts';
 import { parseClientMessage } from './validate.ts';
@@ -55,7 +64,7 @@ export const CLOSE = {
 export class Session implements ClientSink {
   readonly id: string;
   private socket: Socket;
-  private manager: RoomManager;
+  private registry: RoomRegistry;
   private log: Logger;
   private config: ServerConfig;
   private capabilities: Capabilities;
@@ -63,19 +72,31 @@ export class Session implements ClientSink {
   playerId: PlayerId = '';
   private secret: SessionSecret = '';
   private name = 'Player';
-  private room: Room | null = null;
+  private room: RoomEntry | null = null;
 
-  /** True once `hello` has been answered. Gates every other message type. */
+  /** True once a `welcome` has gone out. Gates every other message type. */
   private ready = false;
   /**
    * Outbound messages produced before `welcome` was sent.
    *
-   * Joining a room publishes state to everyone *including this socket*, which
-   * would otherwise arrive before the handshake reply and force every client to
-   * cope with out-of-order startup. Buffering here keeps that complexity in one
-   * place, on the side that created it.
+   * Registering with a referee publishes state to everyone *including this
+   * socket*, which would otherwise arrive before the handshake reply and force
+   * every client to cope with out-of-order startup. Buffering keeps that
+   * complexity in one place, on the side that created it.
    */
   private pendingOut: ServerMessage[] = [];
+  /**
+   * Suppress this many `welcome` messages.
+   *
+   * Registering an identity with a referee is only possible by handing it a
+   * `hello`, and the referee answers every `hello` with a `welcome`. When this
+   * connection has already been welcomed and is merely registering with a
+   * *second* room (created or joined after the handshake), that extra welcome
+   * would tell the client to re-run its connect logic — and a `welcome` with
+   * `resumed: null` makes `wsTransport` think its room vanished and try to
+   * rejoin. So it is swallowed.
+   */
+  private swallowWelcome = 0;
 
   private bucket = new TokenBucket(40, 20);
   private strikes = 0;
@@ -86,14 +107,14 @@ export class Session implements ClientSink {
   constructor(
     id: string,
     socket: Socket,
-    manager: RoomManager,
+    registry: RoomRegistry,
     log: Logger,
     config: ServerConfig,
     capabilities: Capabilities,
   ) {
     this.id = id;
     this.socket = socket;
-    this.manager = manager;
+    this.registry = registry;
     this.log = log;
     this.config = config;
     this.capabilities = capabilities;
@@ -105,7 +126,19 @@ export class Session implements ClientSink {
 
   send(msg: ServerMessage): void {
     if (this.closed) return;
-    if (!this.ready && msg.t !== 'welcome' && msg.t !== 'error') {
+
+    if (msg.t === 'welcome') {
+      if (this.swallowWelcome > 0) {
+        this.swallowWelcome -= 1;
+        return;
+      }
+      this.write(msg);
+      this.ready = true;
+      this.flush();
+      return;
+    }
+
+    if (!this.ready && msg.t !== 'error') {
       this.pendingOut.push(msg);
       return;
     }
@@ -181,36 +214,34 @@ export class Session implements ClientSink {
   }
 
   private dispatch(msg: Exclude<ClientMessage, { t: 'hello' }>): void {
-    switch (msg.t) {
-      case 'createRoom':
-        return this.onCreateRoom(msg.rid, msg.options);
-      case 'joinRoom':
-        return this.onJoinRoom(msg.rid, msg.code, msg.asSpectator === true);
-      case 'leaveRoom':
-        this.detachFromRoom(true);
-        return this.ackOk(msg.rid);
-      case 'setReady':
-        return this.relay(msg.rid, (room) => room.setReady(this.playerId, msg.ready));
-      case 'setName':
-        this.name = sanitizeName(msg.name, this.name);
-        if (!this.room) return this.ackOk(msg.rid);
-        return this.relay(msg.rid, (room) => room.setName(this.playerId, this.name));
-      case 'startGame':
-        return this.relay(msg.rid, (room) => room.start(this.playerId));
-      case 'move':
-        return this.relay(msg.rid, (room) =>
-          room.submitMove(this.playerId, msg.move, msg.expectedSeq),
-        );
-      case 'rematch':
-        return this.relay(msg.rid, (room) => room.rematch(this.playerId, msg.accept));
-      case 'resync':
-        if (!this.room) return this.ackErr(msg.rid, wireError('NOT_IN_ROOM', 'not in a room'));
-        this.room.sendStateTo(this);
-        return this.ackOk(msg.rid);
-      case 'ping':
-        if (msg.rttMs !== undefined) this.room?.reportRtt(this.playerId, msg.rttMs);
-        this.write({ t: 'pong', id: msg.id, t0: msg.t0, serverTime: Date.now() });
-        return;
+    // Room allocation is the server's job; a peer-to-peer referee is handed its
+    // room at construction and has nothing to allocate.
+    if (msg.t === 'createRoom') return this.onCreateRoom(msg.rid, msg.options);
+    if (msg.t === 'joinRoom') return this.onJoinRoom(msg.rid, msg.code, msg.asSpectator === true);
+
+    // `setName` has to be remembered even with no room attached, so the name is
+    // right when one is created or joined later.
+    if (msg.t === 'setName') this.name = sanitizeName(msg.name, this.name);
+
+    // `ping` must work before joining anything, or the client's latency
+    // indicator sits at "unknown" on the lobby screen.
+    if (msg.t === 'ping' && !this.room) {
+      this.write({ t: 'pong', id: msg.id, t0: msg.t0, serverTime: Date.now() });
+      return;
+    }
+
+    const room = this.room;
+    if (!room) {
+      if ('rid' in msg) this.ackErr(msg.rid, wireError('NOT_IN_ROOM', 'not in a room'));
+      return;
+    }
+
+    const wasLeaving = msg.t === 'leaveRoom';
+    room.referee.handle(this.playerId, msg);
+
+    if (wasLeaving) {
+      this.room = null;
+      this.registry.detach(room, this.playerId, this, true);
     }
   }
 
@@ -221,6 +252,8 @@ export class Session implements ClientSink {
   private onHello(msg: Extract<ClientMessage, { t: 'hello' }>): void {
     if (this.ready) return; // Duplicate hello; harmless, ignore.
 
+    // Checked here rather than in the referee so a version mismatch is refused
+    // before it can touch room state at all.
     if (msg.protocolVersion !== PROTOCOL_VERSION) {
       this.fatal(
         wireError(
@@ -237,35 +270,41 @@ export class Session implements ClientSink {
     this.secret = msg.sessionSecret;
     this.name = sanitizeName(msg.name, 'Player');
 
-    // Restore a held seat, if there is one. Done before `welcome` is written so
-    // that `resumed` carries the state the player is about to see, and the
-    // broadcast this triggers is buffered until after the handshake.
-    let resumed = null;
-    const previous = this.manager.locate(this.playerId);
+    // Restore a held seat if there is one. The referee owns that decision —
+    // including checking the session secret — and answers with the `welcome`
+    // carrying `resumed`.
+    const previous = this.registry.locate(this.playerId);
     if (previous) {
-      const result = previous.join(this.playerId, this.secret, this.name, this, false);
-      if (result.ok && result.value.resumed) {
-        this.room = previous;
-        resumed = previous.toState();
+      this.registry.attach(previous, this.playerId, this);
+      this.room = previous;
+      previous.referee.handle(this.playerId, msg);
+      if (!this.ready) {
+        // The referee refused the resume (a secret mismatch sends a fatal
+        // error instead of a welcome). Drop the association and let the client
+        // start over rather than leaving it half-attached.
+        this.registry.detach(previous, this.playerId, this, true);
+        this.room = null;
+      } else {
         this.log.info('session: resumed seat', {
           id: this.id,
           playerId: this.playerId,
           code: previous.code,
         });
       }
+      return;
     }
 
-    this.ready = true;
-    this.write({
+    // Nothing to resume: answer the handshake ourselves so the client can get
+    // on with creating or joining a room.
+    this.send({
       t: 'welcome',
       protocolVersion: PROTOCOL_VERSION,
       serverTime: Date.now(),
       playerId: this.playerId,
       name: this.name,
       capabilities: this.capabilities,
-      resumed,
+      resumed: null,
     });
-    this.flush();
   }
 
   /* ---------------------------------------------------------------------- *
@@ -273,84 +312,88 @@ export class Session implements ClientSink {
    * ---------------------------------------------------------------------- */
 
   private onCreateRoom(rid: string, options?: CreateRoomOptions): void {
-    this.detachFromRoom(true);
+    this.leaveCurrentRoom();
 
-    const created = this.manager.create(options ?? {});
+    const created = this.registry.create(
+      { playerId: this.playerId, sessionSecret: this.secret, name: this.name },
+      options,
+    );
     if (!created.ok) return this.ackErr(rid, created.error);
 
-    const room = created.value;
-    const joined = room.join(this.playerId, this.secret, this.name, this, false);
-    if (!joined.ok) {
-      this.manager.destroy(room.code, 'creation failed');
-      return this.ackErr(rid, joined.error);
-    }
-
-    this.room = room;
-    this.manager.remember(this.playerId, room.code);
-    this.ackOk(rid, { kind: 'room', code: room.code, state: room.toState() });
+    const entry = created.value;
+    this.registry.attach(entry, this.playerId, this);
+    this.room = entry;
+    this.ackOk(rid, { kind: 'room', code: entry.code, state: entry.referee.snapshot() });
   }
 
   private onJoinRoom(rid: string, code: string, asSpectator: boolean): void {
+    // Checked locally so an obvious typo costs nothing and reports precisely.
     if (!isPlausibleRoomCode(code)) {
       return this.ackErr(rid, wireError('CODE_INVALID', 'that is not a valid room code'));
     }
 
-    const room = this.manager.get(code);
-    if (!room || room.closed) {
+    const entry = this.registry.get(code);
+    if (!entry) {
       return this.ackErr(rid, wireError('ROOM_NOT_FOUND', 'no room with that code'));
     }
 
-    if (this.room && this.room !== room) this.detachFromRoom(true);
+    if (this.room && this.room !== entry) this.leaveCurrentRoom();
 
-    const joined = room.join(this.playerId, this.secret, this.name, this, asSpectator);
-    if (!joined.ok) return this.ackErr(rid, joined.error);
+    this.registry.attach(entry, this.playerId, this);
+    this.room = entry;
 
-    this.room = room;
-    this.manager.remember(this.playerId, room.code);
-    this.ackOk(rid, { kind: 'room', code: room.code, state: room.toState() });
+    // Register identity with *this* referee before asking for a seat: it needs
+    // the display name, and it needs the session secret on file or a later
+    // reconnect could not prove ownership of the seat. Handing it a `hello` is
+    // the only way in, and the resulting `welcome` is redundant here.
+    this.registerWithReferee(entry);
+
+    entry.referee.handle(this.playerId, {
+      t: 'joinRoom',
+      rid,
+      code,
+      asSpectator,
+    });
   }
 
-  /**
-   * Leave the current room.
-   *
-   * `deliberate` distinguishes pressing "leave" — which releases the seat at
-   * once — from the socket dying, which starts the reconnect grace period
-   * instead. Conflating the two either strands seats or loses them on a train.
-   */
-  private detachFromRoom(deliberate: boolean): void {
+  /** Give a referee this connection's identity, swallowing its `welcome`. */
+  private registerWithReferee(entry: RoomEntry): void {
+    this.swallowWelcome += 1;
+    entry.referee.handle(this.playerId, {
+      t: 'hello',
+      protocolVersion: PROTOCOL_VERSION,
+      playerId: this.playerId,
+      sessionSecret: this.secret,
+      name: this.name,
+    });
+    // If the referee answered with something other than a welcome (it refuses a
+    // secret mismatch), the counter would leak into the next handshake.
+    this.swallowWelcome = 0;
+  }
+
+  private leaveCurrentRoom(): void {
     const room = this.room;
     if (!room) return;
     this.room = null;
-
-    if (deliberate) {
-      room.leave(this.playerId);
-      this.manager.forget(this.playerId);
-    } else {
-      room.detach(this.playerId, this);
-    }
-
-    if (room.isDeserted) this.manager.destroy(room.code, 'last participant left');
+    room.referee.removeParticipant(this.playerId, true);
+    this.registry.detach(room, this.playerId, this, true);
   }
 
   /** Called when the underlying socket closes for any reason. */
   onSocketClosed(): void {
     if (this.closed) return;
     this.closed = true;
-    this.detachFromRoom(false);
+    const room = this.room;
+    this.room = null;
+    // Not deliberate: hold the seat and let the grace period decide.
+    if (room) this.registry.detach(room, this.playerId, this, false);
   }
 
   /* ---------------------------------------------------------------------- *
    * Replies
    * ---------------------------------------------------------------------- */
 
-  private relay(rid: string, action: (room: Room) => RoomResult): void {
-    if (!this.room) return this.ackErr(rid, wireError('NOT_IN_ROOM', 'not in a room'));
-    const result = action(this.room);
-    if (result.ok) this.ackOk(rid);
-    else this.ackErr(rid, result.error);
-  }
-
-  private ackOk(rid: string, result: AckResult = { kind: 'ok' }): void {
+  private ackOk(rid: string, result: Extract<ServerMessage, { t: 'ack' }>['result'] = { kind: 'ok' }): void {
     this.send({ t: 'ack', rid, ok: true, result });
   }
 
@@ -383,5 +426,5 @@ export function buildCapabilities(config: ServerConfig): Capabilities {
   };
 }
 
-/** Re-exported so `index.ts` does not need a second import of the timings. */
-export const HEARTBEAT_INTERVAL_MS = Math.max(5_000, Math.floor(TIMING.idleTimeoutMs / 2));
+/** Socket-level heartbeat interval. */
+export const HEARTBEAT_INTERVAL_MS = 10_000;

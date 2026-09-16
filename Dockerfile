@@ -33,22 +33,22 @@ FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Production dependencies first, so this layer is cached independently of the
+# application code below and only re-runs when the manifests change.
+#
+# This is a normal production install now that `ws` has been moved from
+# devDependencies to dependencies, where it belonged - the server imports it at
+# runtime. It used to be a hand-targeted `COPY node_modules/ws`, which worked
+# but silently relied on `ws` having no transitive dependencies of its own; a
+# second runtime dependency would have produced a container that built cleanly
+# and died on its first import. `npm ci --omit=dev` has no such failure mode.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
 # The server is not bundled or transpiled: Node 24 strips the TypeScript types
 # at load time and runs the .ts files directly. So we ship the source.
 COPY --from=build /app/server ./server
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
-
-# `ws` is the server's only runtime dependency, and it has zero dependencies of
-# its own (196K). Copying the exact tree the lockfile produced is smaller and
-# more reproducible than a second `npm ci` in this stage.
-#
-# NOTE: `ws` currently sits in devDependencies in package.json, which is why
-# this is a targeted copy rather than `npm ci --omit=dev`. If `ws` moves to
-# `dependencies` - and it should - this can become a normal production install.
-# If the server ever gains another runtime dependency, add it here too or the
-# container will start and then die on its first import.
-COPY --from=build /app/node_modules/ws ./node_modules/ws
 
 # Don't run as root.
 USER node

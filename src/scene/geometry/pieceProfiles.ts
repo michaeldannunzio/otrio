@@ -203,9 +203,16 @@ export const RADIAL_SEGMENTS: Record<Detail, Record<PieceSize, number>> = {
  * outer wall -> back across the underside, which puts the material on the
  * right throughout, as `buildLatheGeometry` requires.
  */
-export function ringProfile(m: PieceMetrics, detail: Detail = 'medium'): LathePoint[] {
+/**
+ * Every derived dimension of a ring, in one place.
+ *
+ * Shared by the profile builder and by `markPlacement`, which needs to know
+ * where the crown is in order to print on it. Two copies of these clamps would
+ * drift, and a glyph printed a millimetre off the land is a glyph smeared down
+ * a fillet.
+ */
+function ringDims(m: PieceMetrics) {
   const f = MOULDING;
-  const steps = FILLET_STEPS[detail];
   const h = m.height;
 
   // Clamp features so an unusually small or short piece degrades rather than
@@ -216,14 +223,75 @@ export function ringProfile(m: PieceMetrics, detail: Detail = 'medium'): LathePo
   const filletOuter = Math.min(f.filletOuter, m.wall * 0.3, (h - partY - run) * 0.8);
   const filletInner = Math.min(f.filletInner, m.wall * 0.22);
 
-  // Radii.
   const wallR = m.outerRadius - f.partingFin; // outer wall at the parting line
   const topR = wallR - f.draftUp; // outer wall where the crown fillet starts
   const baseR = wallR - f.draftDown; // outer wall at the base chamfer
   const boreTopR = m.innerRadius + f.boreDraft; // bore where the crown fillet starts
 
-  const landInner = boreTopR + filletInner;
-  const landOuter = topR - filletOuter;
+  return {
+    chamfer,
+    partY,
+    run,
+    filletOuter,
+    filletInner,
+    wallR,
+    topR,
+    baseR,
+    boreTopR,
+    landInner: boreTopR + filletInner,
+    landOuter: topR - filletOuter,
+  };
+}
+
+/** Every derived dimension of the peg. Same reason as `ringDims`. */
+function pegDims(m: PieceMetrics) {
+  const f = MOULDING;
+  const h = m.height;
+  const r = m.outerRadius;
+
+  const chamfer = Math.min(f.baseChamfer, r * 0.12, h * 0.15);
+  const partY = h * f.partingAt;
+  const run = Math.min(f.partingRun, (partY - chamfer) * 0.6);
+  // The peg's crown is softer than a ring's: there is no inner wall to balance
+  // it, and a harder edge here reads as a machined slug rather than a moulding.
+  const filletTop = Math.min(f.filletOuter * 1.15, r * 0.2, (h - partY - run) * 0.8);
+
+  const wallR = r - f.partingFin;
+  const topR = wallR - f.draftUp;
+  const landOuter = topR - filletTop;
+
+  return {
+    chamfer,
+    partY,
+    run,
+    filletTop,
+    wallR,
+    topR,
+    baseR: wallR - f.draftDown,
+    landOuter,
+    // Sink: a dish a few tenths of a millimetre deep at part scale, flat across
+    // the middle so the pole keeps an exactly vertical normal.
+    sink: Math.min(0.0045, h * 0.07),
+    sinkFlat: Math.min(0.03, landOuter * 0.25),
+  };
+}
+
+export function ringProfile(m: PieceMetrics, detail: Detail = 'medium'): LathePoint[] {
+  const steps = FILLET_STEPS[detail];
+  const h = m.height;
+  const {
+    chamfer,
+    partY,
+    run,
+    filletOuter,
+    filletInner,
+    wallR,
+    topR,
+    baseR,
+    boreTopR,
+    landInner,
+    landOuter,
+  } = ringDims(m);
 
   const out: LathePoint[] = [];
 
@@ -275,27 +343,11 @@ export function ringProfile(m: PieceMetrics, detail: Detail = 'medium'): LathePo
  * flat face normal rather than a blend.
  */
 export function pegProfile(m: PieceMetrics, detail: Detail = 'medium'): LathePoint[] {
-  const f = MOULDING;
   const steps = FILLET_STEPS[detail];
   const h = m.height;
   const r = m.outerRadius;
-
-  const chamfer = Math.min(f.baseChamfer, r * 0.12, h * 0.15);
-  const partY = h * f.partingAt;
-  const run = Math.min(f.partingRun, (partY - chamfer) * 0.6);
-  // The peg's crown is softer than a ring's: there is no inner wall to balance
-  // it, and a harder edge here reads as a machined slug rather than a moulding.
-  const filletTop = Math.min(f.filletOuter * 1.15, r * 0.2, (h - partY - run) * 0.8);
-
-  const wallR = r - f.partingFin;
-  const topR = wallR - f.draftUp;
-  const baseR = wallR - f.draftDown;
-  const landOuter = topR - filletTop;
-
-  // Sink: a dish a few tenths of a millimetre deep at part scale, flat across
-  // the middle so the pole keeps an exactly vertical normal.
-  const sink = Math.min(0.0045, h * 0.07);
-  const sinkFlat = Math.min(0.030, landOuter * 0.25);
+  const { chamfer, partY, run, filletTop, wallR, topR, baseR, landOuter, sink, sinkFlat } =
+    pegDims(m);
 
   const out: LathePoint[] = [];
 
@@ -331,4 +383,57 @@ export function pieceProfile(
   return m.annular
     ? { points: ringProfile(m, detail), closed: true }
     : { points: pegProfile(m, detail), closed: false };
+}
+
+/* -------------------------------------------------------------------------- *
+ * Where the identity glyph is printed
+ * -------------------------------------------------------------------------- */
+
+/**
+ * How far past the flat land the ring's mark is allowed to run, as a fraction
+ * of each adjacent fillet. A third of the way round a quarter-arc is about 30
+ * degrees of tilt, which the shader's up-facing mask barely fades — so the
+ * glyph gets the widest band it can have without being clipped into a lens.
+ */
+const CROWN_FILLET_REACH = 0.35;
+
+export interface MarkPlacement {
+  /** 0 = one mark planar-projected on a solid top. 1 = repeated round a band. */
+  mode: 0 | 1;
+  /** Object-space radius where the printable area starts. 0 when planar. */
+  inner: number;
+  /** Object-space radius where it ends; the mark radius when planar. */
+  outer: number;
+}
+
+/**
+ * Where a piece's identity glyph goes, in object space.
+ *
+ * The two piece shapes take it differently, because they have to:
+ *
+ *   PEG     a solid top, so it takes one mark planar-projected onto it, at
+ *           ~12 px across on a phone. Fully legible, which matters most here —
+ *           the peg is the piece with the least diameter to spend.
+ *
+ *   RINGS   only a 4.9 px flat land, where a single mark would be tiny and
+ *           would rotate out of view. So the mark repeats round the bezel and
+ *           runs out over both crown fillets, the way index marks are printed
+ *           on a real dial: ~6 px each, resolving properly as the camera comes
+ *           in, and reading as a consistent printed rhythm when it does not.
+ */
+export function markPlacement(size: PieceSize): MarkPlacement {
+  const m = PIECE_METRICS[size];
+
+  if (!m.annular) {
+    // Inside the dish rim, so the mark never rides up the crown fillet where
+    // the projection would smear it.
+    return { mode: 0, inner: 0, outer: pegDims(m).landOuter * 0.82 };
+  }
+
+  const d = ringDims(m);
+  return {
+    mode: 1,
+    inner: d.landInner - d.filletInner * CROWN_FILLET_REACH,
+    outer: d.landOuter + d.filletOuter * CROWN_FILLET_REACH,
+  };
 }

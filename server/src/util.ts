@@ -48,8 +48,16 @@ import {
 export interface ServerConfig {
   port: number;
   host: string;
-  /** How long a dropped player's seat is held. */
-  reconnectGraceMs: number;
+  /**
+   * How long a dropped player's seat is held.
+   *
+   * Read-only, and deliberately not configurable: the shared referee in
+   * `src/net/referee.ts` uses `TIMING.reconnectGraceMs` directly, so both
+   * backends wait the same amount. A server-only override would make the
+   * hosted game behave differently from the peer-to-peer one and make the
+   * `reconnectGraceMs` advertised in `Capabilities` a lie.
+   */
+  readonly reconnectGraceMs: number;
   /** Default per-turn limit for new rooms. `0` disables the clock. */
   turnTimeoutMs: number;
   /** Refuse to create more rooms than this, to bound memory. */
@@ -88,7 +96,7 @@ export function loadConfig(): ServerConfig {
   return {
     port: envInt('PORT', 8787),
     host: process.env.HOST ?? '0.0.0.0',
-    reconnectGraceMs: envInt('OTRIO_RECONNECT_GRACE_MS', TIMING.reconnectGraceMs),
+    reconnectGraceMs: TIMING.reconnectGraceMs,
     turnTimeoutMs: envInt('OTRIO_TURN_TIMEOUT_MS', 0),
     maxRooms: envInt('OTRIO_MAX_ROOMS', 500),
     maxConnections: envInt('OTRIO_MAX_CONNECTIONS', 2000),
@@ -224,38 +232,4 @@ export class TokenBucket {
 export function clampInt(n: unknown, min: number, max: number, fallback: number): number {
   if (typeof n !== 'number' || !Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
-}
-
-/**
- * Wrap a `setTimeout` so it never keeps the process alive on its own, and so
- * cancelling is safe to repeat.
- *
- * `unref()` matters: without it, a 45-second reconnect grace timer delays a
- * graceful shutdown by up to 45 seconds, and a PaaS will SIGKILL the container
- * long before that.
- */
-export class Cancelable {
-  private handle: ReturnType<typeof setTimeout> | null = null;
-
-  set(fn: () => void, ms: number): void {
-    this.cancel();
-    this.handle = setTimeout(() => {
-      this.handle = null;
-      fn();
-    }, ms);
-    if (typeof this.handle === 'object' && this.handle !== null && 'unref' in this.handle) {
-      (this.handle as { unref: () => void }).unref();
-    }
-  }
-
-  cancel(): void {
-    if (this.handle !== null) {
-      clearTimeout(this.handle);
-      this.handle = null;
-    }
-  }
-
-  get active(): boolean {
-    return this.handle !== null;
-  }
 }

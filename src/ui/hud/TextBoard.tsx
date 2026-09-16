@@ -2,19 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { BOARD_CELLS, PIECE_SIZES } from '../../net/protocol';
-import type { CellIndex, CellState, PieceSize } from '../../net/protocol';
+import type { CellIndex, CellState, PieceSize, PlayerColor } from '../../net/protocol';
 import {
+  dueColour,
   interaction,
+  ownerNameOfColour,
   placePiece,
-  playerBySeat,
-  reserveFor,
+  reserveOfColour,
   ui,
   useNet,
   usePrefs,
   useUi,
 } from '../../store';
 import { CELL_NAME, SIZE_LABEL, describeError } from '../lib/copy';
-import { RingGlyph, cx, seatClass } from '../components/Ring';
+import { RingGlyph, colourClass, cx } from '../components/Ring';
 
 /**
  * A parallel, fully accessible control surface for the board.
@@ -41,7 +42,6 @@ import { RingGlyph, cx, seatClass } from '../components/Ring';
  */
 export function TextBoard() {
   const room = useNet((s) => s.room);
-  const seat = useNet((s) => s.seat);
   const isMyTurn = useNet((s) => s.isMyTurn);
   const pinned = usePrefs((s) => s.showTextBoard);
   const openedThisSession = useUi((s) => s.textBoardOpen);
@@ -116,7 +116,9 @@ export function TextBoard() {
 
   if (!game) return null;
 
-  const reserve = seat === null ? null : reserveFor(room, seat);
+  // The tray belongs to the colour due this turn, not to the person.
+  const colour = dueColour(room);
+  const reserve = colour === null ? null : reserveOfColour(room, colour);
   const armedLeft = reserve ? reserve[selectedSize] : 0;
 
   async function place(cell: CellIndex) {
@@ -168,7 +170,7 @@ export function TextBoard() {
                 cell={cell}
                 colIndex={colIndex + 1}
                 state={game.board[cell]}
-                nameOfSeat={(s) => playerBySeat(room, s)?.name ?? `Seat ${s + 1}`}
+                nameOfColour={(c) => ownerNameOfColour(room, c)}
                 armed={selectedSize}
                 canPlace={isMyTurn && armedLeft > 0 && game.board[cell]?.[selectedSize] === null}
                 isFocusTarget={focusCell === cell}
@@ -192,7 +194,7 @@ function CellButton({
   cell,
   colIndex,
   state,
-  nameOfSeat,
+  nameOfColour,
   armed,
   canPlace,
   isFocusTarget,
@@ -202,7 +204,7 @@ function CellButton({
   cell: CellIndex;
   colIndex: number;
   state: CellState | undefined;
-  nameOfSeat: (seat: number) => string;
+  nameOfColour: (colour: PlayerColor) => string;
   armed: PieceSize;
   canPlace: boolean;
   isFocusTarget: boolean;
@@ -212,9 +214,11 @@ function CellButton({
   // The accessible name is a complete sentence about this space, because a
   // screen reader user has no board to glance at: what is here, and what would
   // happen if I pressed Enter.
+  // `== null` covers both undefined and null without swallowing colour 0,
+  // which is purple and is falsy.
   const occupancy = PIECE_SIZES.map((size) => {
     const owner = state?.[size];
-    return `${size} ${owner === null || owner === undefined ? 'free' : nameOfSeat(owner)}`;
+    return `${size} ${owner === null || owner === undefined ? 'free' : nameOfColour(owner)}`;
   }).join(', ');
   const action = canPlace ? `Place your ${armed} ring here.` : 'Cannot place here.';
 
@@ -243,7 +247,7 @@ function CellButton({
           return (
             <span
               key={size}
-              className={cx('o-tcell__ring', owner === null ? '' : seatClass(owner))}
+              className={cx('o-tcell__ring', owner === null ? '' : colourClass(owner))}
               data-empty={owner === null ? 'true' : 'false'}
             >
               <RingGlyph size={size} state={owner === null ? 'spent' : 'held'} />

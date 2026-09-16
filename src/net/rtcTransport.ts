@@ -48,6 +48,49 @@
  * something at stake: use the hosted backend.
  */
 
+import {
+  type AckMsg,
+  type Capabilities,
+  type ClientMessage,
+  type CreateRoomOptions,
+  type EventMsg,
+  isPlausibleRoomCode,
+  MAX_PLAYERS,
+  type Move,
+  normalizeRoomCode,
+  type PlayerId,
+  PROTOCOL_VERSION,
+  randomId,
+  ROOM_CODE_ALPHABET,
+  type RoomCode,
+  type RoomState,
+  sanitizeName,
+  type Seat,
+  type ServerMessage,
+  TIMING,
+  wireError,
+} from './protocol';
+
+import {
+  type ConnectionQuality,
+  type ConnectionStatus,
+  deriveLocalView,
+  Emitter,
+  gradeQuality,
+  type Identity,
+  initialQuality,
+  type JoinRoomOptions,
+  type LocalRole,
+  smoothRtt,
+  type Transport,
+  type TransportConfig,
+  TransportError,
+  type TransportEventMap,
+  type TransportEventType,
+  type TransportSnapshot,
+  type Unsubscribe,
+} from './transport';
+
 import { PeerReferee } from './referee';
 
 import {

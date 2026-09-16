@@ -1,12 +1,10 @@
 import { useEffect, useRef } from 'react';
 
 import {
-  coloursOfSeat,
-  isTwoPlayerVariant,
   leaveRoom,
   openSeatCount,
   playersBySeat,
-  reserveFor,
+  seatedCount,
   setReady,
   startCheck,
   startGame,
@@ -15,20 +13,12 @@ import {
   variantBadges,
 } from '../../store';
 import { MAX_PLAYERS } from '../../net/protocol';
-import type { PlayerView, Reserve, Seat } from '../../net/protocol';
+import type { PlayerView, Seat } from '../../net/protocol';
 import { describeError, describePeer, joinNames } from '../lib/copy';
 import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Pill } from '../components/primitives';
 import { RoomCodeDisplay } from '../components/RoomCode';
-import {
-  ReserveTray,
-  SeatBadge,
-  colourName,
-  cx,
-  seatClass,
-  seatColorName,
-  seatGlyph,
-} from '../components/Ring';
+import { cx } from '../components/Ring';
 import { ConnectionDot } from '../hud/ConnectionDot';
 
 /**
@@ -102,23 +92,25 @@ export function LobbyScreen() {
                 player={player}
                 isSelf={player?.playerId === selfId}
                 isHostSeat={player?.playerId === room.hostPlayerId}
-                reserve={reserveFor(room, seat)}
-                colours={coloursOfSeat(room, seat)}
               />
             );
           })}
         </ul>
         {/*
-          "Pick a colour" is the wrong shape for this game. In a 2-player game a
-          seat owns a *pair* of opposite colours and must alternate between them
-          every turn (docs/RULES.md §4.6), so there is no single colour to pick;
-          and the protocol assigns seats in join order with no message for
-          swapping them. Saying what actually happens beats a control that lies.
+          The lobby deliberately shows NO game colours.
+
+          `PlayerView.colors` is empty until the game starts, and that is the
+          protocol being careful rather than incomplete: how many colours a seat
+          gets depends on the final player count, so seat 1 is red in a
+          three-player game and red+blue in a two-player one. A lobby that
+          guessed would be wrong every time the last player joined or left, and
+          the wrongness would look like the game reassigning colours under you.
+          So seats are numbered here, and colour appears when it is real.
         */}
         <p className="o-lobby__note">
-          {isTwoPlayerVariant(room)
-            ? 'Two-player games use all four colours: each player takes two opposite ones and switches between them every turn.'
-            : 'Colours follow the order people joined.'}
+          {seatedCount(room) === 2
+            ? 'With two players you each take two opposite colours and switch between them every turn. Colours are dealt when the game starts.'
+            : 'Colours are dealt when the game starts.'}
         </p>
         {variantBadges(room).length > 0 ? (
           <ul className="o-variantBadges" aria-label="Optional rules in play">
@@ -215,33 +207,24 @@ function SeatRow({
   player,
   isSelf,
   isHostSeat,
-  reserve,
-  colours,
 }: {
   seat: Seat;
   player: PlayerView | null;
   isSelf: boolean;
   isHostSeat: boolean;
-  reserve: Reserve;
-  /** Colours this seat controls. Two in the official 2-player game. */
-  colours: number[];
 }) {
-  const colour = colours.length > 1
-    ? colours.map((c) => colourName(c)).join(' and ')
-    : seatColorName(seat);
-  const { glyph, label: glyphLabel } = seatGlyph(seat);
+  // Seat number, not a colour. See the note in LobbyScreen above.
+  const seatName = `Seat ${seat + 1}`;
 
   if (!player) {
     return (
-      <li className={cx('o-seat o-seat--empty', seatClass(seat))}>
-        <span className="o-seat__badge" aria-hidden="true">
-          {glyph}
+      <li className="o-seat o-seat--empty">
+        <span className="o-seat__number" aria-hidden="true">
+          {seat + 1}
         </span>
         <span className="o-seat__body">
           <span className="o-seat__name">Open seat</span>
-          <span className="o-seat__meta">
-            {colour} {glyphLabel} — waiting for someone to join
-          </span>
+          <span className="o-seat__meta">{seatName} — waiting for someone to join</span>
         </span>
       </li>
     );
@@ -250,13 +233,9 @@ function SeatRow({
   const peer = describePeer(player.connection, player.forfeited);
 
   return (
-    <li
-      className={cx('o-seat', isSelf && 'is-self', player.ready && 'is-ready', seatClass(seat))}
-    >
-      <span className="o-seat__badges">
-        {colours.map((c) => (
-          <SeatBadge key={c} seat={c} />
-        ))}
+    <li className={cx('o-seat', isSelf && 'is-self', player.ready && 'is-ready')}>
+      <span className="o-seat__number" aria-hidden="true">
+        {seat + 1}
       </span>
       <span className="o-seat__body">
         <span className="o-seat__name">
@@ -264,7 +243,7 @@ function SeatRow({
           {isSelf ? <span className="o-seat__you"> (you)</span> : null}
         </span>
         <span className="o-seat__meta">
-          {colour} {glyphLabel}
+          {seatName}
           {isHostSeat ? ' — host' : ''}
         </span>
       </span>
@@ -284,12 +263,6 @@ function SeatRow({
         />
         <span className="u-visually-hidden">{peer.label}</span>
       </span>
-      <ReserveTray
-        reserve={reserve}
-        seat={colours.length > 1 ? null : seat}
-        size="sm"
-        label={player.name}
-      />
     </li>
   );
 }

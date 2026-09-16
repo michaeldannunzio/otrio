@@ -1,5 +1,6 @@
 import { PIECE_SIZES } from '../../net/protocol';
-import type { PieceSize, Reserve, Seat } from '../../net/protocol';
+import type { PieceSize, PlayerColor, Reserve } from '../../net/protocol';
+import { colourLabel } from '../../store/colours';
 import { PLAYERS } from '../../styles/tokens';
 import { SIZE_INITIAL, SIZE_LABEL } from '../lib/copy';
 
@@ -8,7 +9,11 @@ import { SIZE_INITIAL, SIZE_LABEL } from '../lib/copy';
  * picker and the text board so that "a large red ring" looks like the same
  * thing everywhere in the 2D layer.
  *
- * Three channels carry player identity, because one is never enough:
+ * Everything here is keyed by **colour**, never by seat. A piece belongs to a
+ * colour; in the official two-player game one person owns two of them, so
+ * colouring anything by seat shows the wrong colour on half the turns.
+ *
+ * Three channels carry colour identity, because one is never enough:
  *   - hue, from `--player-N`
  *   - a glyph (circle / triangle / square / diamond) from `PLAYERS[n].glyph`,
  *     which survives total colour blindness and a sun-washed phone screen
@@ -17,9 +22,12 @@ import { SIZE_INITIAL, SIZE_LABEL } from '../lib/copy';
  * player can switch on in settings.
  */
 
-/** `seat` 0-3 maps onto token players 1-4. Anything else falls back to neutral. */
-export function seatTokenIndex(seat: Seat | null | undefined): 0 | 1 | 2 | 3 | null {
-  if (seat === 0 || seat === 1 || seat === 2 || seat === 3) return seat;
+/**
+ * `PlayerColor` 0-3 maps onto token players 1-4, in the same clockwise order
+ * (purple north, red east, green south, blue west). Anything else is neutral.
+ */
+export function colourTokenIndex(colour: PlayerColor | null | undefined): 0 | 1 | 2 | 3 | null {
+  if (colour === 0 || colour === 1 || colour === 2 || colour === 3) return colour;
   return null;
 }
 
@@ -34,8 +42,8 @@ export function seatTokenIndex(seat: Seat | null | undefined): 0 | 1 | 2 | 3 | n
  * Returns `''` for an unseated slot, which leaves `--player-current` at its
  * neutral default from `tokens.css`.
  */
-export function seatClass(seat: Seat | null | undefined): string {
-  const i = seatTokenIndex(seat);
+export function colourClass(colour: PlayerColor | null | undefined): string {
+  const i = colourTokenIndex(colour);
   return i === null ? '' : `u-player-${i + 1}`;
 }
 
@@ -45,17 +53,13 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 }
 
 /** The non-colour identity glyph and its accessible name. */
-export function seatGlyph(seat: Seat | null | undefined): { glyph: string; label: string } {
-  const i = seatTokenIndex(seat);
+export function colourGlyph(colour: PlayerColor | null | undefined): { glyph: string; label: string } {
+  const i = colourTokenIndex(colour);
   if (i === null) return { glyph: '○', label: 'no colour' };
   return { glyph: PLAYERS[i].glyph, label: PLAYERS[i].glyphLabel };
 }
 
-/** Default colour name, used before anyone has typed a name. */
-export function seatColorName(seat: Seat | null | undefined): string {
-  const i = seatTokenIndex(seat);
-  return i === null ? 'Unseated' : PLAYERS[i].label;
-}
+export { colourLabel };
 
 /* -------------------------------------------------------------------------- *
  * A single ring
@@ -113,24 +117,25 @@ export function RingGlyph({
  */
 export function ReserveTray({
   reserve,
-  seat,
+  colour,
   showLetters = false,
   size = 'md',
   label,
 }: {
   reserve: Reserve;
-  seat: Seat | null;
+  colour: PlayerColor | null;
   showLetters?: boolean;
   size?: 'sm' | 'md';
   /** Who this tray belongs to, for the accessible summary. */
   label?: string;
 }) {
   const summary = PIECE_SIZES.map((s) => `${reserve[s]} ${s}`).join(', ');
+  const who = label ?? colourLabel(colour);
   return (
     <div
-      className={cx(`o-tray o-tray--${size}`, seatClass(seat))}
+      className={cx(`o-tray o-tray--${size}`, colourClass(colour))}
       role="img"
-      aria-label={label ? `${label}: ${summary} rings left` : `${summary} rings left`}
+      aria-label={`${who}: ${summary} rings left`}
     >
       {PIECE_SIZES.map((pieceSize) => (
         <div className="o-tray__col" key={pieceSize}>
@@ -153,39 +158,32 @@ export function ReserveTray({
  * -------------------------------------------------------------------------- */
 
 /** Colour swatch plus identity glyph. Never used without a name next to it. */
-export function SeatBadge({
-  seat,
+export function ColourBadge({
+  colour,
   size = 'md',
 }: {
-  seat: Seat | null;
+  colour: PlayerColor | null;
   size?: 'sm' | 'md' | 'lg';
 }) {
-  const { glyph } = seatGlyph(seat);
+  const { glyph } = colourGlyph(colour);
   return (
-    <span className={cx(`o-seatbadge o-seatbadge--${size}`, seatClass(seat))} aria-hidden="true">
+    <span className={cx(`o-seatbadge o-seatbadge--${size}`, colourClass(colour))} aria-hidden="true">
       {glyph}
     </span>
   );
 }
 
-/** Full accessible description of a seat's identity, for labels. */
-export function seatIdentityText(seat: Seat | null, name?: string): string {
-  const { label } = seatGlyph(seat);
-  const colour = seatColorName(seat);
-  return name ? `${name}, ${colour} ${label}` : `${colour} ${label}`;
+/**
+ * A seat's identity as a sentence, for accessible names.
+ *
+ * Takes the colours rather than the seat, because a two-player seat has two of
+ * them and "Ann, red circle" would be half the truth on alternate turns.
+ */
+export function seatIdentityText(colours: PlayerColor[], name?: string): string {
+  if (colours.length === 0) return name ?? 'Unseated';
+  const parts = colours.map((c) => `${colourLabel(c)} ${colourGlyph(c).label}`);
+  const joined = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return name ? `${name}, ${joined}` : joined;
 }
 
 export { SIZE_LABEL };
-
-/**
- * Colour-facing aliases.
- *
- * `Seat` and `ColourId` are both 0-3 indices into the same four-entry token
- * palette, so the styling helpers are literally the same function. They are
- * aliased rather than reused under the seat name so that call sites dealing
- * with the two-player variant -- where a seat owns *two* colours and the two
- * concepts genuinely diverge -- read correctly.
- */
-export const colourClass = seatClass;
-export const colourGlyph = seatGlyph;
-export const colourName = seatColorName;

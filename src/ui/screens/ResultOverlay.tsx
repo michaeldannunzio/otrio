@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { PIECE_SIZES } from '../../net/protocol';
+import type { WinningLine } from '../../net/protocol';
 import {
   leaveRoom,
   outcomeOf,
@@ -13,7 +14,7 @@ import {
 import { CELL_NAME, describeEndReason, describeError, describeWin, joinNames, winConditionLabel } from '../lib/copy';
 import { useFocusTrap } from '../lib/a11y';
 import { Button } from '../components/primitives';
-import { RingGlyph, SeatBadge, cx, seatClass } from '../components/Ring';
+import { ColourBadge, RingGlyph, colourClass, colourLabel, cx } from '../components/Ring';
 
 /**
  * The end of the game: who won, *how*, and what happens next.
@@ -89,7 +90,7 @@ export function ResultOverlay() {
     <div className="o-result" role="presentation">
       <div className="o-result__scrim" aria-hidden="true" />
       <div
-        className={cx(`o-result__panel o-result__panel--${outcome.kind}`, outcome.winner ? seatClass(outcome.winner.seat) : '')}
+        className={cx(`o-result__panel o-result__panel--${outcome.kind}`, colourClass(outcome.colour))}
         ref={panelRef}
         role="dialog"
         aria-modal="true"
@@ -101,15 +102,23 @@ export function ResultOverlay() {
           <>
             <p className="o-result__badge">{winConditionLabel(outcome.line)}</p>
             <div className="o-result__crest">
-              <SeatBadge seat={outcome.winner.seat} size="lg" />
+              <ColourBadge colour={outcome.colour} size="lg" />
             </div>
             <h2 className="o-result__title" id="result-title">
               {isWinner ? 'You win' : `${outcome.winner.name} wins`}
             </h2>
             <p className="o-result__detail" id="result-detail">
               {describeWin(outcome.line, outcome.winner.name, isWinner)}
+              {outcome.winner.colors.length > 1 && outcome.colour !== null ? (
+                <>
+                  {' '}
+                  <span className="o-result__colourNote">
+                    Won with {colourLabel(outcome.colour).toLowerCase()} — colours never combine.
+                  </span>
+                </>
+              ) : null}
             </p>
-            {outcome.line ? <WinningLineList line={outcome.line} seat={outcome.winner.seat} /> : null}
+            {outcome.line ? <WinningLineList line={outcome.line} /> : null}
           </>
         ) : null}
 
@@ -164,15 +173,11 @@ export function ResultOverlay() {
  * for a small-medium-large line "top left, centre, bottom right" plus the three
  * ring sizes is enough to locate it without hunting.
  */
-function WinningLineList({
-  line,
-  seat,
-}: {
-  line: { kind: string; cells: number[]; sizes: string[] };
-  seat: number;
-}) {
+function WinningLineList({ line }: { line: WinningLine }) {
+  // Coloured by the winning COLOUR, not the winner's seat. In a two-player game
+  // the person holds two colours and only one of them made the line.
   return (
-    <ol className={cx('o-winline', seatClass(seat))}>
+    <ol className={cx('o-winline', colourClass(line.color))}>
       {line.cells.map((cell, i) => {
         const size = (line.sizes[i] ?? 'small') as (typeof PIECE_SIZES)[number];
         return (

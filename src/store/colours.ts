@@ -1,158 +1,215 @@
 /**
- * The colour model, and the one place that knows the official 2-player game is
- * not a 2-colour game.
+ * Colours, and the fact that a colour is not a seat.
  *
- * ## The rule (docs/RULES.md §2.4, §4.6)
+ * `PlayerColor` (0-3: purple, red, green, blue — the board's clockwise arms) is
+ * what owns a piece. `Seat` is a person. They coincide in 3- and 4-player games
+ * and diverge in the official 2-player game, where each person holds two
+ * opposite colours and must alternate between them every turn
+ * (docs/RULES.md §4.6).
  *
- * A 2-player game uses **all four colours**: each player takes two that sit
- * opposite each other on the board (purple+green, blue+red), and **must
- * alternate between their two colours on successive turns**. Colours never
- * combine for a win, so each player is really running two independent
- * three-in-a-row campaigns and is only allowed to advance one of them per turn.
+ * This module exists because the difference is invisible to the type checker.
+ * `Seat` and `PlayerColor` are both numbers, so `reserves[seat]` compiles
+ * perfectly and renders the wrong player's pieces in exactly one configuration:
+ * a two-player game, which is the configuration most likely to be tested last.
+ * Everything that touches a colour goes through here so the mistake has one
+ * place to not happen.
  *
- * With the board's clockwise order (purple N, red E, green S, blue W) the two
- * opposite pairs are colours `{0, 2}` and `{1, 3}`, which makes the rule
- * palette-independent: **seat `s` controls colours `s` and `s + 2`**.
+ * Three rules worth keeping in your head:
  *
- * ## The gap
- *
- * `src/net/protocol.ts` cannot currently express any of this. `CellState` holds
- * a `Seat | null` per slot, `GameSnapshot.reserves` is one `Reserve` per seat
- * (max 9 pieces), and `turn` is a `Seat`. A 2-player seat holds 18 pieces in two
- * colours, and which colour a placed ring belongs to is information the wire
- * format has nowhere to put. `src/game/types.ts` models it correctly
- * (`PlayerId` is a colour, `Seat.controls` is a list of them); the protocol has
- * not caught up.
- *
- * So this module is written against an **optional extension** to `GameSnapshot`
- * (`ColourAwareGame` below). When the referee sends those fields, the UI shows
- * the due colour, per-colour reserves, and the alternation state. When it does
- * not, the UI says truthfully that the seat holds two colours and that they
- * alternate, and **does not invent a due colour** -- a guessed marker that is
- * right half the time is worse than an honest absence, because a player who
- * follows it and gets `ILLEGAL_MOVE` will conclude the rules engine is broken.
+ *  - `GameSnapshot.reserves` is **length 4, indexed by colour**, never by seat.
+ *    Colours not in play read `{0,0,0}`. Iterate `colorsInPlay`.
+ *  - `PlayerView.colors` is **empty during the lobby**, because how many
+ *    colours a seat gets depends on the final player count. A lobby must not
+ *    show game colours at all.
+ *  - Colour `0` is purple and is falsy. Always `slot !== null`.
  */
 
-import { MIN_PLAYERS } from '../net/protocol';
-import type { GameSnapshot, PieceSize, Reserve, RoomState, Seat } from '../net/protocol';
+import { ALL_COLORS, MIN_PLAYERS, PLAYER_COLORS } from '../net/protocol';
+import type {
+  GameSnapshot,
+  PlayerColor,
+  PlayerView,
+  Reserve,
+  RoomState,
+  Seat,
+} from '../net/protocol';
 
-/** A colour, 0-3, in the board's clockwise order. Distinct from `Seat`. */
-export type ColourId = 0 | 1 | 2 | 3;
+export type { PlayerColor };
+export { ALL_COLORS, PLAYER_COLORS };
 
-/**
- * Fields the referee may add to `GameSnapshot` to describe colours properly.
- * Every one is optional; the UI degrades cleanly without them.
- *
- * Implementors: this is the contract. Add these to `GameSnapshot` in
- * `protocol.ts` and populate them and the 2-player variant renders correctly
- * with no further change here.
- */
-export interface ColourAwareGame {
-  /** Colours each seat controls, indexed by seat. Length 2 for 2-player seats. */
-  seatColors?: ColourId[][];
-  /** The colour due to be played this turn. Undefined on a seat's first move. */
-  turnColor?: ColourId | null;
-  /** Remaining pieces per *colour*, indexed by colour. Nine per colour. */
-  colorReserves?: Reserve[];
-  /** Per-slot colour ownership, parallel to `board`. */
-  colorBoard?: Array<Record<PieceSize, ColourId | null>>;
-  /** Whether `twoPlayerStrictAlternation` is in force for this game. */
-  strictAlternation?: boolean;
+const EMPTY_RESERVE: Reserve = Object.freeze({ small: 0, medium: 0, large: 0 });
+
+/** Display name for a colour: "Purple", "Red", "Green", "Blue". */
+export function colourLabel(colour: PlayerColor | null | undefined): string {
+  if (colour === null || colour === undefined) return 'No colour';
+  const name = PLAYER_COLORS[colour];
+  return name ? name[0].toUpperCase() + name.slice(1) : 'No colour';
 }
 
-type Game = GameSnapshot & ColourAwareGame;
-
-/** How many people are seated. Drives the whole colour model. */
+/** How many people are seated. */
 export function seatedCount(room: RoomState | null): number {
   return room?.players.length ?? 0;
 }
 
-/** True when this room is the official two-player, four-colour variant. */
+/**
+ * True when this is the official two-player, four-colour game.
+ *
+ * Derived from the *authoritative* colour assignment rather than the head
+ * count, so it is only ever true once the referee has actually dealt two
+ * colours to a seat.
+ */
 export function isTwoPlayerVariant(room: RoomState | null): boolean {
-  return seatedCount(room) === MIN_PLAYERS;
+  if (!room?.game) return seatedCount(room) === MIN_PLAYERS;
+  return room.players.some((p) => p.colors.length > 1);
+}
+
+/** Colours actually in this game, ascending. Empty outside a running game. */
+export function coloursInPlay(room: RoomState | null): PlayerColor[] {
+  return room?.game?.colorsInPlay ?? [];
 }
 
 /**
- * The colours a seat controls.
+ * The colours a seat plays.
  *
- * Prefers the referee's own answer. Falls back to the rulebook's geometry:
- * two players take opposite arms, everyone else takes one.
+ * Empty in the lobby — that is the protocol's answer, not a gap, and callers
+ * must render something that is not a game colour (a seat number, an avatar)
+ * rather than guessing. Seat 1 is red in a three-player game and red+blue in a
+ * two-player one, so a lobby that guesses will be wrong half the time.
  */
-export function coloursOfSeat(room: RoomState | null, seat: Seat): ColourId[] {
-  const game = room?.game as Game | null | undefined;
-  const declared = game?.seatColors?.[seat];
-  if (declared && declared.length > 0) return declared;
-  if (isTwoPlayerVariant(room)) {
-    return [seat as ColourId, ((seat + 2) % 4) as ColourId];
-  }
-  return [seat as ColourId];
+export function coloursOfSeat(room: RoomState | null, seat: Seat): PlayerColor[] {
+  return room?.players.find((p) => p.seat === seat)?.colors ?? [];
 }
 
-/** True when this seat has to alternate between two colours. */
-export function seatAlternates(room: RoomState | null, seat: Seat): boolean {
-  const game = room?.game as Game | null | undefined;
-  if (game?.strictAlternation === false) return false;
-  return coloursOfSeat(room, seat).length > 1;
+/** True once the referee has dealt colours. Lobby UIs check this. */
+export function coloursAssigned(room: RoomState | null): boolean {
+  return (room?.players ?? []).some((p) => p.colors.length > 0);
+}
+
+/** The person who plays a colour. */
+export function seatOfColour(room: RoomState | null, colour: PlayerColor): PlayerView | null {
+  return room?.players.find((p) => p.colors.includes(colour)) ?? null;
+}
+
+/** Who to credit a ring on the board to. Falls back to the colour's own name. */
+export function ownerNameOfColour(room: RoomState | null, colour: PlayerColor): string {
+  return seatOfColour(room, colour)?.name ?? colourLabel(colour);
 }
 
 /**
- * The colour due this turn, or `null` when we genuinely do not know.
+ * The colours the seat to move may place this turn.
  *
- * `null` has two distinct causes and the UI must handle both:
- *   - the seat controls one colour, so there is nothing to disambiguate
- *     (callers should use `coloursOfSeat(...)[0]`);
- *   - the referee has not told us, and we refuse to guess.
+ * Length 1 on every 3-/4-player turn and on every turn of the official
+ * 2-player game, because strict alternation fixes which colour is due. Longer
+ * only when alternation has been switched off.
  */
-export function dueColour(room: RoomState | null): ColourId | null {
-  const game = room?.game as Game | null | undefined;
-  if (!game || game.phase !== 'playing') return null;
-  if (game.turnColor !== undefined && game.turnColor !== null) return game.turnColor;
-  const colours = coloursOfSeat(room, game.turn);
+export function turnColours(room: RoomState | null): PlayerColor[] {
+  const game = room?.game;
+  if (!game || game.phase !== 'playing') return [];
+  return game.turnColors;
+}
+
+/**
+ * The single colour due this turn, or `null` when the player genuinely has a
+ * choice (alternation disabled) or there is no game.
+ *
+ * `null` means "ask", never "guess".
+ */
+export function dueColour(room: RoomState | null): PlayerColor | null {
+  const colours = turnColours(room);
   return colours.length === 1 ? colours[0] : null;
 }
 
-/** The colour that will be due next turn for the same seat, when known. */
-export function nextColourFor(room: RoomState | null, seat: Seat): ColourId | null {
+/** True when this seat holds more than one colour and has to switch each turn. */
+export function seatAlternates(room: RoomState | null, seat: Seat): boolean {
+  return coloursOfSeat(room, seat).length > 1;
+}
+
+/** What this seat will be due next turn, when alternation makes that knowable. */
+export function nextColourFor(room: RoomState | null, seat: Seat): PlayerColor | null {
+  const held = coloursOfSeat(room, seat);
   const due = dueColour(room);
-  const colours = coloursOfSeat(room, seat);
-  if (colours.length < 2 || due === null) return null;
-  const i = colours.indexOf(due);
-  return i < 0 ? null : colours[(i + 1) % colours.length];
+  if (held.length < 2 || due === null) return null;
+  const i = held.indexOf(due);
+  return i < 0 ? null : held[(i + 1) % held.length];
 }
 
 /**
- * Remaining pieces for one colour.
+ * Pieces a colour still holds.
  *
- * Uses `colorReserves` when the referee sends it. Without it, the only reserve
- * we have is per seat, which for a 2-player seat is the *combined* figure and
- * cannot be split -- so we return it once for the seat and let the caller label
- * it as such rather than showing the same nine pieces twice.
+ * **Indexed by colour.** This is the one function that should ever touch
+ * `reserves`, and it is why `reserveFor(room, seat)` no longer exists.
  */
-export function reserveOfColour(room: RoomState | null, colour: ColourId): Reserve | null {
-  const game = room?.game as Game | null | undefined;
-  return game?.colorReserves?.[colour] ?? null;
+export function reserveOfColour(room: RoomState | null, colour: PlayerColor): Reserve {
+  return room?.game?.reserves[colour] ?? EMPTY_RESERVE;
 }
 
-/** True when we can show reserves broken down by colour rather than by seat. */
-export function hasColourReserves(room: RoomState | null): boolean {
-  const game = room?.game as Game | null | undefined;
-  return Array.isArray(game?.colorReserves) && game.colorReserves.length > 0;
+/** Every tray a seat owns, paired with its colour. One entry, or two. */
+export function reservesOfSeat(
+  room: RoomState | null,
+  seat: Seat,
+): Array<{ colour: PlayerColor; reserve: Reserve }> {
+  return coloursOfSeat(room, seat).map((colour) => ({
+    colour,
+    reserve: reserveOfColour(room, colour),
+  }));
+}
+
+/** Total rings a seat still holds, across every colour they play. */
+export function totalRemainingForSeat(room: RoomState | null, seat: Seat): number {
+  return reservesOfSeat(room, seat).reduce(
+    (sum, { reserve }) => sum + reserve.small + reserve.medium + reserve.large,
+    0,
+  );
+}
+
+/** The colour that won, when there was a win. */
+export function winningColour(room: RoomState | null): PlayerColor | null {
+  return room?.game?.winnerColor ?? null;
+}
+
+/**
+ * Turns skipped on the way to the current one, phrased for a person.
+ *
+ * A real rule, not an error: a seat whose due colour has no legal placement is
+ * passed over. Saying so out loud is the difference between "the game moved on
+ * without me" and "oh, blue is out of larges".
+ */
+export function skippedNotes(room: RoomState | null): string[] {
+  const skipped = room?.game?.skipped ?? [];
+  return skipped.map((entry) => {
+    const who = room?.players.find((p) => p.seat === entry.seat)?.name ?? 'A player';
+    const colours = entry.colors.map((c) => colourLabel(c).toLowerCase()).join(' and ');
+    return `${who} had no playable ${colours} piece and was skipped.`;
+  });
 }
 
 /**
  * Why a player may be unable to place a ring they can plainly see a home for.
  *
- * This sentence exists because of a specific failure mode: under strict
- * alternation a 2-player player will regularly be holding a winning placement
- * they are not allowed to make this turn. Without an explanation on screen that
- * reads as a bug, not a rule -- and they will tap the board repeatedly trying
- * to make it work.
+ * Under strict alternation a two-colour player will regularly be holding a
+ * winning placement they are not allowed to make this turn. Without this
+ * sentence on screen that reads as a broken board, and they will tap the same
+ * space repeatedly trying to make it work.
  */
 export function alternationNote(room: RoomState | null, seat: Seat | null): string | null {
   if (seat === null || !seatAlternates(room, seat)) return null;
   const due = dueColour(room);
-  if (due === null) {
-    return 'You play two colours and must switch between them every turn.';
-  }
-  return 'You must switch colours every turn, so only one of your two colours can move now.';
+  if (due === null) return 'You play two colours. Choose which one to place.';
+  return `You must switch colours every turn, so only ${colourLabel(due).toLowerCase()} can move now.`;
+}
+
+/** Narrow an unknown number to a `PlayerColor`. */
+export function isPlayerColour(value: unknown): value is PlayerColor {
+  return value === 0 || value === 1 || value === 2 || value === 3;
+}
+
+/** Convenience for the board: who owns a slot, as a colour. */
+export function ownerOfSlot(
+  game: GameSnapshot | null | undefined,
+  cell: number,
+  size: 'small' | 'medium' | 'large',
+): PlayerColor | null {
+  // `!== null` rather than a truthiness test: colour 0 is purple.
+  const owner = game?.board[cell]?.[size];
+  return owner === null || owner === undefined ? null : owner;
 }

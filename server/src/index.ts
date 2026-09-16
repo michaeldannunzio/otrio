@@ -39,11 +39,16 @@
  * multiple instances need routing by room code or they will split rooms. See
  * the header of `rooms.ts` for why that is the right trade here.
  *
+ * The rules, and the entire room lifecycle, are NOT in this directory: they live
+ * in `src/net/referee.ts`, which the peer-to-peer backend drives too. The
+ * reconnect grace period is therefore a shared constant (`TIMING`), not a
+ * server setting — the two backends must not disagree about how long a seat is
+ * held.
+ *
  * ENVIRONMENT
  * -----------
  *   PORT                        listen port                    (8787)
  *   HOST                        bind address                   (0.0.0.0)
- *   OTRIO_RECONNECT_GRACE_MS    seat hold after a drop          (45000)
  *   OTRIO_TURN_TIMEOUT_MS       per-turn clock, 0 = untimed     (0)
  *   OTRIO_MAX_ROOMS             room ceiling                    (500)
  *   OTRIO_MAX_CONNECTIONS       socket ceiling                  (2000)
@@ -60,8 +65,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 
 import { PROTOCOL_VERSION } from '../../src/net/protocol.ts';
-import { RoomManager } from './rooms.ts';
-import { rules } from './rules.ts';
+import { RoomRegistry } from './rooms.ts';
 import { CLOSE, HEARTBEAT_INTERVAL_MS, Session, buildCapabilities } from './session.ts';
 import type { Socket } from './session.ts';
 import { Logger, loadConfig, shortId } from './util.ts';
@@ -100,12 +104,12 @@ function originAllowed(req: IncomingMessage): boolean {
 }
 
 async function main(): Promise<void> {
-  // The rules engine is imported directly (see `rules.ts`), so a mismatch is a
-  // compile error rather than something to discover at boot.
-  const manager = new RoomManager(rules, log, config);
-  manager.startSweeper();
-
+  // Room lifecycle and every rule live in the shared referee
+  // (`src/net/referee.ts`), which both backends drive. This process only owns
+  // the registry: which rooms exist, which socket is whose, and the clock.
   const capabilities = buildCapabilities(config);
+  const registry = new RoomRegistry(log, config, capabilities);
+  registry.start();
   const startedAt = Date.now();
 
   /* ---------------------------------------------------------------------- *
@@ -123,7 +127,7 @@ async function main(): Promise<void> {
       const body = JSON.stringify({
         ok: true,
         protocolVersion: PROTOCOL_VERSION,
-        rooms: manager.size,
+        rooms: registry.size,
         connections: sessions.size,
         uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
       });
@@ -176,7 +180,7 @@ async function main(): Promise<void> {
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const id = shortId();
-    const session = new Session(id, adaptSocket(ws), manager, log, config, capabilities);
+    const session = new Session(id, adaptSocket(ws), registry, log, config, capabilities);
     sessions.set(ws, session);
     log.debug('socket: open', { id, ip: req.socket.remoteAddress, connections: sessions.size });
 
@@ -254,13 +258,13 @@ async function main(): Promise<void> {
   const shutdown = (signal: string): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.info('server: shutting down', { signal, rooms: manager.size });
+    log.info('server: shutting down', { signal, rooms: registry.size });
 
     clearInterval(heartbeat);
-    manager.stopSweeper();
+    registry.stop();
     // Tell everyone why, so clients show "server restarting" rather than
     // silently retrying into a closed port.
-    manager.closeAll('server is restarting');
+    registry.closeAll('server is restarting');
     for (const [ws, session] of sessions) {
       session.close(CLOSE.SHUTDOWN, 'server is restarting');
       ws.terminate();

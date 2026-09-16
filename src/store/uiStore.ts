@@ -17,7 +17,7 @@
 
 import { create } from 'zustand';
 
-import type { PieceSize } from '../net/protocol';
+import type { PieceSize, PlayerColor } from '../net/protocol';
 
 /* -------------------------------------------------------------------------- *
  * Announcements
@@ -98,6 +98,12 @@ export interface UiState {
    */
   selectedSize: PieceSize;
   /**
+   * Which colour to place, for the one case where the player has a choice: a
+   * two-colour seat with strict alternation switched off. `null` means "no
+   * deliberate choice", and the referee's `turnColors` decides.
+   */
+  selectedColour: PlayerColor | null;
+  /**
    * True once the player has chosen a size by hand this turn. Until then the UI
    * is free to auto-arm the largest size they still hold, which is what people
    * reach for first and saves a tap on most turns.
@@ -125,6 +131,7 @@ export interface UiStore extends UiState {
   closeSheet(): void;
 
   selectSize(size: PieceSize, manual?: boolean): void;
+  selectColour(colour: PlayerColor | null): void;
   resetSizeChoice(): void;
   setTextBoardOpen(open: boolean): void;
 
@@ -148,6 +155,7 @@ const INITIAL: UiState = {
   prefilledCode: '',
   sheet: null,
   selectedSize: 'large',
+  selectedColour: null,
   sizeChosenManually: false,
   textBoardOpen: false,
   polite: null,
@@ -173,7 +181,8 @@ export const useUi = create<UiStore>()((setState, getState) => ({
       selectedSize,
       sizeChosenManually: manual || s.sizeChosenManually,
     })),
-  resetSizeChoice: () => setState({ sizeChosenManually: false }),
+  selectColour: (selectedColour) => setState({ selectedColour }),
+  resetSizeChoice: () => setState({ sizeChosenManually: false, selectedColour: null }),
   setTextBoardOpen: (textBoardOpen) => setState({ textBoardOpen }),
 
   announce: (text, urgency = 'polite') => {

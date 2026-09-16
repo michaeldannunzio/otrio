@@ -6,23 +6,23 @@ import { createRoot } from 'react-dom/client';
 import './styles/index.css';
 
 import { App } from './App';
-import { applyTheme, setTransport, setTransportBootError, usePrefs } from './store';
+import { setTransport, setTransportBootError, usePrefs } from './store';
 import { loadOrCreateIdentity } from './net/transport';
 import type { Transport, TransportConfig, TransportKind } from './net/transport';
 
 /**
- * Entry point. Three jobs, in order: get the theme right before the first
- * paint, build a transport, mount the app.
+ * Entry point. Two jobs: build a transport, and mount the app. The theme is
+ * already correct by the time this runs -- see the pre-paint script in
+ * index.html and `src/hooks/useTheme.ts`.
  */
 
 /* -------------------------------------------------------------------------- *
  * Theme
  * -------------------------------------------------------------------------- */
 
-// `index.html` already set `data-theme` from localStorage before this bundle
-// even parsed, so there is no flash. This re-applies it once zustand has
-// rehydrated, which is when a first-run default or a migrated value lands.
-applyTheme(usePrefs.getState().theme);
+// Nothing to do here. `index.html` set `data-theme` from localStorage before
+// this bundle parsed, and `src/hooks/useTheme.ts` owns it from then on --
+// `watchTheme()` in App.tsx subscribes the prefs mirror to it.
 
 /* -------------------------------------------------------------------------- *
  * Networking

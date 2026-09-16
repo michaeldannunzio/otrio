@@ -15,6 +15,7 @@ import {
   rollbackTo,
   tryApplyMove,
   undo,
+  withdrawSeat,
 } from './engine.ts';
 import { hasWon, legalMoves, nobodyCanMove, seatOf } from './rules.ts';
 import { buildBoard, findDrawnGame, positionWith, type PieceSpec } from './test-helpers.ts';
@@ -492,5 +493,77 @@ describe('state bookkeeping', () => {
       expect(piecesOnBoard(state.board)).toBe(state.moveNumber);
       expect(state.lastMove).toEqual(state.history[state.history.length - 1]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Withdrawing a seat — a product affordance, not a rule (§6.5)
+// ---------------------------------------------------------------------------
+
+describe('withdrawing a seat', () => {
+  it('drops the seat from the rotation and leaves its pieces on the board', () => {
+    let game = createGame({ players: 4, firstPlayer: 0 });
+    game = applyMove(game, { player: 0, space: 0, size: 'small' });
+    game = applyMove(game, { player: 1, space: 1, size: 'small' });
+    expect(game.currentPlayer).toBe(2);
+
+    const after = withdrawSeat(game, 2);
+    expect(after.config.withdrawnSeats).toEqual([2]);
+    expect(after.config.rotation.map((s) => s.seat)).toEqual([0, 1, 3]);
+    expect(after.config.seats).toHaveLength(4); // still nameable in the UI
+    expect(after.currentSeat).toBe(3); // play moves on past the leaver
+    expect(after.status).toBe('playing');
+    // Seat 1's piece is still there, still blocking.
+    expect(after.board[1].small).toBe(1);
+    expect(remainingPieces(after.board, 1)).toEqual({ small: 2, medium: 3, large: 3 });
+  });
+
+  it('never gives the withdrawn seat another turn', () => {
+    let game = withdrawSeat(createGame({ players: 4, firstPlayer: 0 }), 2);
+    const seats: number[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      seats.push(game.currentSeat);
+      game = applyMove(game, legalMoves(game)[0]);
+    }
+    expect(seats).toEqual([0, 1, 3, 0, 1, 3]);
+    expect(seats).not.toContain(2);
+  });
+
+  it('is a no-op for a seat that is not in the rotation, and refuses the last one', () => {
+    const game = createGame({ players: 3, firstPlayer: 0 });
+    expect(withdrawSeat(game, 3)).toBe(game); // seat 3 was never seated
+    const oneLeft = withdrawSeat(withdrawSeat(game, 1), 2);
+    expect(oneLeft.config.rotation).toHaveLength(1);
+    expect(() => withdrawSeat(oneLeft, 0)).toThrow(RangeError);
+  });
+
+  it('leaves a finished game finished', () => {
+    const finished = replay(createConfig({ players: 4, firstPlayer: 0 }), [
+      { player: 0, space: 4, size: 'small' },
+      { player: 1, space: 0, size: 'small' },
+      { player: 2, space: 8, size: 'small' },
+      { player: 3, space: 2, size: 'small' },
+      { player: 0, space: 4, size: 'medium' },
+      { player: 1, space: 0, size: 'medium' },
+      { player: 2, space: 8, size: 'medium' },
+      { player: 3, space: 2, size: 'medium' },
+      { player: 0, space: 4, size: 'large' },
+    ]);
+    expect(finished.status).toBe('won');
+    const after = withdrawSeat(finished, 1);
+    expect(after.status).toBe('won');
+    expect(after.result?.seat).toBe(0);
+    expect(after.config.withdrawnSeats).toEqual([1]);
+  });
+
+  it('draws the game when the remaining seats cannot move either', () => {
+    // Colour 1 holds all nine of its pieces on the board already; once the two
+    // other seats leave, nobody in the shortened rotation can place.
+    let game = createGame({ players: 3, firstPlayer: 0 });
+    game = applyMove(game, { player: 0, space: 0, size: 'small' });
+    const shortened = withdrawSeat(withdrawSeat(game, 1), 2);
+    expect(shortened.config.rotation.map((s) => s.seat)).toEqual([0]);
+    expect(shortened.currentSeat).toBe(0);
+    expect(shortened.status).toBe('playing'); // colour 0 still has pieces
   });
 });

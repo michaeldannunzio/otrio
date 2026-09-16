@@ -13,11 +13,29 @@
  * space, making a tricolour bullseye once three players share it. Piece origins
  * sit on the underside, so a space places all three at the same Y.
  *
+ * THREE CHANNELS OF IDENTITY, NOT ONE
+ * -----------------------------------
+ * Colour alone does not carry player identity here, and the numbers say so:
+ * greyscale separation between the four rulebook hues is ~10 dE, and the scene
+ * agent's sweep found no board tint that clears 3:1 against all four at once —
+ * 2.24:1 is the ceiling. So a piece says who owns it three ways:
+ *
+ *   1. `players[i].base`  the hue, on `instanceColor`
+ *   2. `players[i].rim`   an outline of fixed world width, derived and verified
+ *                         per player to clear 3:1 against the board in both
+ *                         themes. Drawn as an inverted hull; see
+ *                         `materials/pieceMaterial.ts`.
+ *   3. `PLAYERS[i].glyph` printed on the top face as ink, plus the gloss-to-
+ *                         matte finish ladder in `materials/palette.ts`. These
+ *                         are the two non-colour channels, and they are what
+ *                         the 10 dE greyscale figure was accepted against.
+ *
  * HOW IT DRAWS
  * ------------
- * 36 pieces, 3 draw calls. One material for all of them; colour rides on
- * `instanceColor` and finish on a per-instance `vec4`, both of which three.js
- * and drei feed to the shader without breaking the batch.
+ * 36 pieces, 6 draw calls: three for the pieces, three for their outline
+ * shells. One material each; colour rides on `instanceColor`, and finish, glyph
+ * placement and ink ride on per-instance attributes — none of which breaks the
+ * batch.
  *
  *     <PieceField>
  *       <Piece player="red" size="large" position={[x, y, z]} />
@@ -44,24 +62,35 @@ import {
   type ReactNode,
 } from 'react';
 import { InstancedAttribute, createInstances } from '@react-three/drei';
-import type { GroupProps, MeshProps } from '@react-three/fiber';
+import type { GroupProps } from '@react-three/fiber';
 import type { Object3D } from 'three';
 
+import { Color } from 'three';
+import { useSceneTheme } from '../hooks/useTheme';
+import type { PlayerColors } from '../styles/theme';
 import { PIECE_HEIGHT, SLOTS } from './Board';
 import {
   PIECE_METRICS,
   PIECE_SIZES,
   clonePieceGeometry,
   getPieceGeometry,
+  markPlacement,
   pieceSetTriangleBudget,
   type Detail,
   type PieceSize,
 } from './geometry';
 import {
   DEFAULT_FINISH_VALUE,
+  DEFAULT_INK_VALUE,
+  DEFAULT_MARK_VALUE,
   boostFinish,
   finishToArray,
+  getGlyphAtlas,
+  getPieceOutlineMaterial,
+  PLAYER_ORDER,
   paintForPlayer,
+  setGlyphAtlas,
+  setPieceMark,
   useSoloPieceMaterial,
   usePieceMaterial,
   type PieceFinish,
@@ -82,6 +111,10 @@ import {
 interface PieceInstanceProps {
   /** Per-instance finish: [roughnessMul, clearcoat, clearcoatRoughness, normalMul]. */
   aFinish?: [number, number, number, number];
+  /** Glyph placement: [atlasRow, bandInner, bandOuter, mode]. */
+  aMark?: [number, number, number, number];
+  /** Glyph ink, linear RGB. */
+  aInk?: [number, number, number];
 }
 
 const channels = {
@@ -89,6 +122,31 @@ const channels = {
   medium: createInstances<PieceInstanceProps>(),
   large: createInstances<PieceInstanceProps>(),
 } as const;
+
+/**
+ * A second set of channels for the outline shells. Three more instanced meshes,
+ * three more draw calls, and the silhouette contrast the whole palette depends
+ * on — no board tint clears 3:1 against all four player hues at once.
+ */
+const outlineChannels = {
+  small: createInstances(),
+  medium: createInstances(),
+  large: createInstances(),
+} as const;
+
+/** sRGB hex -> linear RGB triple, which is what an instanced attribute wants. */
+const scratchColor = /* @__PURE__ */ new Color();
+function toLinear(hex: string): [number, number, number] {
+  scratchColor.set(hex);
+  return [scratchColor.r, scratchColor.g, scratchColor.b];
+}
+
+/**
+ * The shell is decoration. Leaving it raycastable would put two hits on every
+ * pointer event over a piece, and the second one belongs to an object no caller
+ * has ever heard of.
+ */
+const noRaycast = () => null;
 
 /* -------------------------------------------------------------------------- *
  * Field
@@ -99,6 +157,10 @@ interface FieldConfig {
   detail: Detail;
   quality: PieceQuality;
   accessibleFinish: number;
+  /** Resolved for the active theme; indexed by player 0..3. */
+  players: readonly PlayerColors[];
+  /** Per-size mark placement, already scaled to the pitch. */
+  marks: Record<PieceSize, [number, number, number, number]>;
 }
 
 const FieldContext = createContext<FieldConfig | null>(null);
@@ -145,16 +207,31 @@ export function PieceField({
   receiveShadow = true,
   children,
 }: PieceFieldProps) {
+  const theme = useSceneTheme();
   const material = usePieceMaterial(quality);
+  const outlineMaterial = useMemo(
+    () => getPieceOutlineMaterial(theme.piece.rimWidth * pitch),
+    [theme.piece.rimWidth, pitch],
+  );
+
+  // The identity glyph. Rasterised once from the theme's own shapes; see
+  // materials/glyphAtlas.ts for why it is drawn rather than typeset.
+  useEffect(() => {
+    setGlyphAtlas(material, getGlyphAtlas(theme.players));
+  }, [material, theme.players]);
 
   // Cloned, not shared: drei's <InstancedAttribute> attaches its buffer to
   // `geometry.attributes.aFinish` and deletes it on unmount. Two fields on one
-  // cached geometry would fight over that slot.
+  // cached geometry would fight over that slot. The outline shells need their
+  // own copies for the same reason.
   const geometry = useMemo(
     () => ({
       small: clonePieceGeometry('small', detail, pitch),
       medium: clonePieceGeometry('medium', detail, pitch),
       large: clonePieceGeometry('large', detail, pitch),
+      outlineSmall: clonePieceGeometry('small', detail, pitch),
+      outlineMedium: clonePieceGeometry('medium', detail, pitch),
+      outlineLarge: clonePieceGeometry('large', detail, pitch),
     }),
     [detail, pitch],
   );
@@ -173,14 +250,22 @@ export function PieceField({
     }
   }, [geometry]);
 
-  const config = useMemo<FieldConfig>(
-    () => ({ pitch, detail, quality, accessibleFinish }),
-    [pitch, detail, quality, accessibleFinish],
-  );
+  const config = useMemo<FieldConfig>(() => {
+    const marks = {} as Record<PieceSize, [number, number, number, number]>;
+    for (const size of PIECE_SIZES) {
+      const m = markPlacement(size);
+      // Row is filled in per piece; the rest is a property of the shape.
+      marks[size] = [0, m.inner * pitch, m.outer * pitch, m.mode];
+    }
+    return { pitch, detail, quality, accessibleFinish, players: theme.players, marks };
+  }, [pitch, detail, quality, accessibleFinish, theme.players]);
 
   const [LargeInstances] = channels.large;
   const [MediumInstances] = channels.medium;
   const [SmallInstances] = channels.small;
+  const [LargeOutlines] = outlineChannels.large;
+  const [MediumOutlines] = outlineChannels.medium;
+  const [SmallOutlines] = outlineChannels.small;
 
   // Instances are scattered over the whole board, so a single piece's bounding
   // sphere would cull the batch the moment the camera looked past one space.
@@ -189,6 +274,17 @@ export function PieceField({
     material,
     castShadow,
     receiveShadow,
+    frustumCulled: false,
+  } as const;
+
+  // The shell must not cast: it is a fattened copy of the piece, and letting it
+  // into the shadow map would thicken every shadow on the board by the rim
+  // width for no reason.
+  const sharedOutline = {
+    limit,
+    material: outlineMaterial,
+    castShadow: false,
+    receiveShadow: false,
     frustumCulled: false,
   } as const;
 
@@ -201,16 +297,28 @@ export function PieceField({
         is the honest fix, and both are session-level settings.
       */}
       <group name="otrio-pieces" key={`${detail}|${pitch}`}>
-        <LargeInstances {...shared} geometry={geometry.large}>
-          <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
-          <MediumInstances {...shared} geometry={geometry.medium}>
-            <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
-            <SmallInstances {...shared} geometry={geometry.small}>
-              <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
-              {children}
-            </SmallInstances>
-          </MediumInstances>
-        </LargeInstances>
+        <LargeOutlines {...sharedOutline} geometry={geometry.outlineLarge}>
+          <MediumOutlines {...sharedOutline} geometry={geometry.outlineMedium}>
+            <SmallOutlines {...sharedOutline} geometry={geometry.outlineSmall}>
+              <LargeInstances {...shared} geometry={geometry.large}>
+                <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
+                <InstancedAttribute name="aMark" defaultValue={DEFAULT_MARK_VALUE} />
+                <InstancedAttribute name="aInk" defaultValue={DEFAULT_INK_VALUE} />
+                <MediumInstances {...shared} geometry={geometry.medium}>
+                  <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
+                  <InstancedAttribute name="aMark" defaultValue={DEFAULT_MARK_VALUE} />
+                  <InstancedAttribute name="aInk" defaultValue={DEFAULT_INK_VALUE} />
+                  <SmallInstances {...shared} geometry={geometry.small}>
+                    <InstancedAttribute name="aFinish" defaultValue={DEFAULT_FINISH_VALUE} />
+                    <InstancedAttribute name="aMark" defaultValue={DEFAULT_MARK_VALUE} />
+                    <InstancedAttribute name="aInk" defaultValue={DEFAULT_INK_VALUE} />
+                    {children}
+                  </SmallInstances>
+                </MediumInstances>
+              </LargeInstances>
+            </SmallOutlines>
+          </MediumOutlines>
+        </LargeOutlines>
       </group>
     </FieldContext.Provider>
   );
@@ -254,6 +362,14 @@ export const Piece = forwardRef<Object3D, PieceProps>(function Piece(props, ref)
   );
 });
 
+/** Seat index 0..3, whichever way the caller named the player. */
+function playerIndex(player: PlayerColorId | number): number {
+  if (typeof player === 'number') {
+    return ((player % PLAYER_ORDER.length) + PLAYER_ORDER.length) % PLAYER_ORDER.length;
+  }
+  return Math.max(0, PLAYER_ORDER.indexOf(player));
+}
+
 function InstancedPiece({
   player,
   size,
@@ -261,10 +377,14 @@ function InstancedPiece({
   pitch: _pitch,
   field,
   forwardedRef,
+  children,
   ...rest
 }: PieceProps & Extras & { field: FieldConfig }) {
   const paint = paintForPlayer(player);
+  const index = playerIndex(player);
+  const colors = field.players[index];
   const [, Instance] = channels[size];
+  const [, Outline] = outlineChannels[size];
 
   const value = useMemo(() => {
     const base = finish ?? paint.finish;
@@ -273,16 +393,33 @@ function InstancedPiece({
     );
   }, [finish, paint.finish, field.accessibleFinish]);
 
+  const mark = useMemo<[number, number, number, number]>(() => {
+    const [, inner, outer, mode] = field.marks[size];
+    return [index, inner, outer, mode];
+  }, [field.marks, size, index]);
+
+  const ink = useMemo(() => toLinear(colors?.on ?? '#000000'), [colors?.on]);
+
   return (
     // drei types the instance ref as its own PositionMesh subclass; callers
     // only ever need the Object3D surface of it, so the ref is widened here
     // rather than leaking drei's type through our public API.
     <Instance
       ref={forwardedRef as never}
-      color={paint.hex}
+      color={colors?.base ?? paint.hex}
       aFinish={value}
+      aMark={mark}
+      aInk={ink}
       {...(rest as unknown as Record<string, never>)}
-    />
+    >
+      {/*
+        The outline shell rides as a child, so it inherits this piece's world
+        transform for free and anything animating the piece moves both. It sits
+        at identity locally; the fattening happens in the shell's vertex shader.
+      */}
+      <Outline color={colors?.rim ?? paint.hex} raycast={noRaycast} />
+      {children}
+    </Instance>
   );
 }
 
@@ -292,21 +429,40 @@ function SoloPiece({
   finish: _finish,
   pitch = 1,
   forwardedRef,
+  children,
   ...rest
 }: PieceProps & Extras) {
+  const theme = useSceneTheme();
   const paint = paintForPlayer(player);
+  const index = playerIndex(player);
+  const colors = theme.players[index];
+
   const material = useSoloPieceMaterial(paint.id);
   const geometry = useMemo(() => getPieceGeometry(size, 'medium', pitch), [size, pitch]);
+  const outlineMaterial = useMemo(
+    () => getPieceOutlineMaterial(theme.piece.rimWidth * pitch, colors?.rim ?? paint.hex),
+    [theme.piece.rimWidth, pitch, colors?.rim, paint.hex],
+  );
+
+  // A solo material is shared per player, so the mark and the atlas are set
+  // here rather than baked in at construction — a HUD swatch and a hover ghost
+  // of the same colour differ only by which size they are showing.
+  useEffect(() => {
+    const m = markPlacement(size);
+    setPieceMark(
+      material,
+      [index, m.inner * pitch, m.outer * pitch, m.mode],
+      colors?.on ?? '#000000',
+    );
+    setGlyphAtlas(material, getGlyphAtlas(theme.players));
+  }, [material, size, index, pitch, colors?.on, theme.players]);
 
   return (
-    <mesh
-      ref={forwardedRef as never}
-      geometry={geometry}
-      material={material}
-      castShadow
-      receiveShadow
-      {...(rest as unknown as MeshProps)}
-    />
+    <group ref={forwardedRef as never} {...(rest as unknown as GroupProps)}>
+      <mesh geometry={geometry} material={material} castShadow receiveShadow />
+      <mesh geometry={geometry} material={outlineMaterial} raycast={noRaycast} />
+      {children}
+    </group>
   );
 }
 

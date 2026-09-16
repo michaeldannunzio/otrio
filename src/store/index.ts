@@ -26,7 +26,7 @@
  * ```
  */
 
-export { usePrefs, applyTheme, watchSystemTheme, PREFS_STORAGE_KEY } from './prefsStore';
+export { usePrefs, watchTheme, PREFS_STORAGE_KEY } from './prefsStore';
 export type { Prefs, PrefsStore, ThemePref, MotionPref } from './prefsStore';
 
 export { useUi, ui } from './uiStore';

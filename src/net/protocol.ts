@@ -336,9 +336,16 @@ export interface PlayerView {
   /**
    * The colours this participant plays.
    *
-   * One entry in a 3-/4-player game and in any 2-player game without colour
-   * sharing; **two** in the official 2-player game, where a seat holds opposite
-   * arms of the board and alternates between them.
+   * **Empty while `RoomState.phase` is `'lobby'`.** How many colours a seat
+   * gets depends on the final player count — one each with three or four
+   * players, *two* each in the official 2-player game — and the lobby does not
+   * know that yet. A lobby UI must therefore show something other than a game
+   * colour (a seat number, an avatar), and must not cache what it sees: seat 1
+   * may be red in a three-player game and red+blue in a two-player one.
+   *
+   * Once play begins: one entry normally, **two** in the official 2-player
+   * game, where a seat holds opposite arms of the board and alternates between
+   * them every turn.
    *
    * Render a player's pieces from this, never from `seat` — seat 1 is not
    * necessarily colour 1.

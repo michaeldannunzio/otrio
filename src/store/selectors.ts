@@ -8,17 +8,13 @@
  * during render, and it will re-render exactly when the room actually changed.
  */
 
-import {
-  BOARD_CELLS,
-  MIN_PLAYERS,
-  PIECES_PER_SIZE,
-  PIECE_SIZES,
-} from '../net/protocol';
+import { BOARD_CELLS, MIN_PLAYERS, PIECE_SIZES } from '../net/protocol';
 import type {
   CellIndex,
   CellState,
   GameSnapshot,
   PieceSize,
+  PlayerColor,
   PlayerId,
   PlayerView,
   Reserve,
@@ -86,33 +82,18 @@ export function disconnectedPlayers(room: RoomState | null): PlayerView[] {
 }
 
 /* -------------------------------------------------------------------------- *
- * Reserves -- the strategically critical bit
- * -------------------------------------------------------------------------- */
-
-const EMPTY_RESERVE: Reserve = Object.freeze({ small: 0, medium: 0, large: 0 });
-const FULL_RESERVE: Reserve = Object.freeze({
-  small: PIECES_PER_SIZE,
-  medium: PIECES_PER_SIZE,
-  large: PIECES_PER_SIZE,
-});
-
-/**
- * What a seat still holds, by size.
+ * Reserves and legality
  *
- * In the lobby there is no game yet, so everyone shows a full reserve -- which
- * is both true and a useful preview of the tray they are about to get.
- */
-export function reserveFor(room: RoomState | null, seat: Seat): Reserve {
-  const game = room?.game;
-  if (!game) return room ? FULL_RESERVE : EMPTY_RESERVE;
-  return game.reserves[seat] ?? EMPTY_RESERVE;
-}
+ * `reserves` is indexed by COLOUR, not by seat, so every reserve accessor lives
+ * in `colours.ts`. There is deliberately no `reserveFor(room, seat)` here: it
+ * compiled fine and returned the wrong tray in exactly the two-player game.
+ * -------------------------------------------------------------------------- */
 
 export function totalReserve(reserve: Reserve): number {
   return reserve.small + reserve.medium + reserve.large;
 }
 
-/** Sizes this seat can still place at all. */
+/** Sizes this colour can still place at all. */
 export function availableSizes(reserve: Reserve): PieceSize[] {
   return PIECE_SIZES.filter((size) => reserve[size] > 0);
 }
@@ -122,8 +103,7 @@ export function availableSizes(reserve: Reserve): PieceSize[] {
  *
  * Large rings are the ones that get blocked first and the ones people reach for
  * first, so defaulting to large saves a tap on most turns. It is only a default
- * -- `sizeChosenManually` in the UI store stops it from overriding a deliberate
- * choice.
+ * -- `sizeChosenManually` in the UI store stops it overriding a real choice.
  */
 export function defaultSize(reserve: Reserve): PieceSize | null {
   if (reserve.large > 0) return 'large';
@@ -132,7 +112,7 @@ export function defaultSize(reserve: Reserve): PieceSize | null {
   return null;
 }
 
-/** Is this exact placement free on the board? Ownership/turn are not checked. */
+/** Is this exact slot free? Ownership and turn are not checked. */
 export function isSlotFree(
   game: GameSnapshot | null,
   cell: CellIndex,
@@ -140,16 +120,20 @@ export function isSlotFree(
 ): boolean {
   if (!game) return false;
   const state: CellState | undefined = game.board[cell];
+  // `!== null` rather than truthiness: colour 0 is purple.
   return !!state && state[size] === null;
 }
 
-/** Every legal placement for a seat, for the keyboard board and for hinting. */
+/**
+ * Every legal placement for one COLOUR, for the keyboard board and for hinting.
+ * Takes a colour because a reserve belongs to a colour, not to a person.
+ */
 export function legalPlacements(
   game: GameSnapshot | null,
-  seat: Seat,
+  colour: PlayerColor,
 ): Array<{ cell: CellIndex; size: PieceSize }> {
   if (!game || game.phase !== 'playing') return [];
-  const reserve = game.reserves[seat];
+  const reserve = game.reserves[colour];
   if (!reserve) return [];
   const out: Array<{ cell: CellIndex; size: PieceSize }> = [];
   for (let cell = 0; cell < BOARD_CELLS; cell += 1) {
@@ -215,7 +199,14 @@ export function startCheck(room: RoomState | null, isHost: boolean): StartCheck 
 
 export interface Outcome {
   kind: 'win' | 'draw' | 'abandoned' | 'none';
+  /** The person who won. */
   winner: PlayerView | null;
+  /**
+   * The colour that won, which is what the pieces are drawn in. Differs from
+   * the winner's seat only in the two-player game -- but that is precisely the
+   * case where colouring the result by seat shows the wrong colour.
+   */
+  colour: PlayerColor | null;
   line: WinningLine | null;
   /** Every cell that should be highlighted. Empty for non-wins. */
   cells: CellIndex[];
@@ -223,7 +214,7 @@ export interface Outcome {
 
 export function outcomeOf(room: RoomState | null): Outcome {
   if (!room || room.phase !== 'finished') {
-    return { kind: 'none', winner: null, line: null, cells: [] };
+    return { kind: 'none', winner: null, colour: null, line: null, cells: [] };
   }
   const game = room.game;
   const line = game?.winningLine ?? null;
@@ -231,14 +222,17 @@ export function outcomeOf(room: RoomState | null): Outcome {
     return {
       kind: 'win',
       winner: playerBySeat(room, game.winner),
+      // Prefer the line's own colour; `winnerColor` is the same value and is
+      // the fallback when a win somehow arrives without a line.
+      colour: line?.color ?? game.winnerColor,
       line,
       cells: line ? dedupe(line.cells) : [],
     };
   }
   if (game?.isDraw || room.endReason === 'draw') {
-    return { kind: 'draw', winner: null, line: null, cells: [] };
+    return { kind: 'draw', winner: null, colour: null, line: null, cells: [] };
   }
-  return { kind: 'abandoned', winner: null, line: null, cells: [] };
+  return { kind: 'abandoned', winner: null, colour: null, line: null, cells: [] };
 }
 
 function dedupe(cells: CellIndex[]): CellIndex[] {

@@ -19,6 +19,13 @@
  *   would keep getting dark, because the media query would still match.
  *
  * NAMING: kebab-case of the `tokens.ts` key. `player1Rim` -> `--player-1-rim`.
+ *
+ * PLAYER NUMBERING IS 1-BASED HERE and 0-based in TypeScript, where it matches
+ * `PlayerColor` in the engine. `--player-1` is purple, which is `PlayerColor 0`.
+ *   --player-1 purple (N)   --player-2 red (E)
+ *   --player-3 green (S)    --player-4 blue (W)
+ * Use `playerVar(index, role)` from tokens.ts rather than building the name by
+ * hand — a slip is silent, you just get another player's colour.
  * =========================================================================== */
 
 :root {

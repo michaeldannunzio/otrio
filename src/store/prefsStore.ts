@@ -1,27 +1,53 @@
 /**
  * Durable, device-local preferences.
  *
- * Persisted under `otrio.prefs.v1`. The theme half of this is read by an inline
- * script in `index.html` *before React boots*, so the first paint is already the
- * right colour -- if you rename the key, the partialised shape, or the
- * `data-theme` attribute, change it there too.
+ * Persisted under `otrio.prefs.v1` -- *except the theme*, which this store only
+ * mirrors.
+ *
+ * ## Theme is owned by `src/hooks/useTheme.ts`
+ *
+ * It persists under `THEME_STORAGE_KEY` as a bare string, and that matters for
+ * one specific reason: the pre-paint script in `index.html` is the most
+ * failure-sensitive code in the app -- it runs before any module, cannot
+ * import, and must never throw. Reading a flat string is one `getItem` and one
+ * comparison. Reading it out of this store's persisted bundle would couple
+ * first paint to a zustand schema version *and* a partialise shape, so renaming
+ * a field here would give dark-mode users a flash of white with nothing
+ * failing loudly.
+ *
+ * So: `theme` below is a read-only mirror kept in step by `subscribeToTheme`,
+ * and `setTheme` delegates. We subscribe rather than only write because the
+ * preference also changes for reasons this store never sees -- the OS flipping
+ * while on `system`, and another tab of the same game.
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import { sanitizeName } from '../net/protocol';
-import { applyThemeAttributes } from '../styles/theme';
+import {
+  getThemeSnapshot,
+  setThemePreference,
+  subscribeToTheme,
+} from '../hooks/useTheme';
+import type { ThemeMode, ThemePreference } from '../hooks/useTheme';
 
 export const PREFS_STORAGE_KEY = 'otrio.prefs.v1';
 
-export type ThemePref = 'system' | 'light' | 'dark';
+/** Re-exported so callers do not have to know where theme lives. */
+export type ThemePref = ThemePreference;
 export type MotionPref = 'system' | 'reduced';
 
 export interface Prefs {
   /** Display name. Sanitised on write with the same rules the referee applies. */
   name: string;
+  /**
+   * Mirror of the theme preference. **Not persisted here** -- `useTheme.ts`
+   * owns it. Writing this field directly does nothing; call `setTheme`.
+   */
   theme: ThemePref;
+  /** The resolved mode actually showing. Mirror; derived from `theme` + the OS. */
+  mode: ThemeMode;
   /**
    * `system` honours `prefers-reduced-motion`. `reduced` forces the calm path
    * even on a device that has not opted in -- useful when the 3D board is
@@ -53,7 +79,9 @@ export interface PrefsStore extends Prefs {
 
 const DEFAULTS: Prefs = {
   name: '',
-  theme: 'system',
+  // Seeded from the owner at module load, not guessed.
+  theme: getThemeSnapshot().preference,
+  mode: getThemeSnapshot().mode,
   motion: 'system',
   sound: true,
   haptics: true,
@@ -67,10 +95,10 @@ export const usePrefs = create<PrefsStore>()(
       ...DEFAULTS,
 
       setName: (name) => setState({ name: sanitizeName(name, '') }),
-      setTheme: (theme) => {
-        setState({ theme });
-        applyTheme(theme);
-      },
+      // Delegate. The subscription below mirrors the result back, so we do not
+      // setState here -- that would briefly show a value the owner might
+      // normalise differently.
+      setTheme: (theme) => setThemePreference(theme),
       setMotion: (motion) => setState({ motion }),
       toggle: (key) => setState((s) => ({ [key]: !s[key] }) as Partial<PrefsStore>),
       set: (key, value) => setState({ [key]: value } as Partial<PrefsStore>),
@@ -78,9 +106,11 @@ export const usePrefs = create<PrefsStore>()(
     {
       name: PREFS_STORAGE_KEY,
       // Only persist the data, never the action functions.
-      partialize: (s): Prefs => ({
+      // `theme` and `mode` are deliberately absent: they are mirrors of state
+      // this store does not own, and persisting them would create a second
+      // copy that goes stale the moment another tab changes the theme.
+      partialize: (s): Omit<Prefs, 'theme' | 'mode'> => ({
         name: s.name,
-        theme: s.theme,
         motion: s.motion,
         sound: s.sound,
         haptics: s.haptics,
@@ -91,35 +121,33 @@ export const usePrefs = create<PrefsStore>()(
         if (!state) return;
         // First run on this device: give them a name rather than an empty field.
         if (!state.name) state.name = suggestName();
-        applyTheme(state.theme);
+        // Rehydration overwrites the seeded mirror with whatever was persisted
+        // (nothing, now), so re-seed it from the owner.
+        const snapshot = getThemeSnapshot();
+        state.theme = snapshot.preference;
+        state.mode = snapshot.mode;
       },
     },
   ),
 );
 
 /**
- * Resolve the preference and hand it to the styles layer.
+ * Keep the mirror in step with the owner.
  *
- * `applyThemeAttributes` (src/styles/theme.ts) is the only thing that writes
- * `data-theme`: it also sets `color-scheme`, which is what makes form controls,
- * scrollbars and the browser's own UI follow the theme, and it updates the
- * `theme-color` meta tag so a phone's status bar matches. Duplicating any of
- * that here would give us two writers racing over one attribute.
+ * Called once at boot. `subscribeToTheme` fires for every cause -- an explicit
+ * `setTheme`, the OS flipping while the preference is `system`, and another tab
+ * changing it -- which is exactly why a mirroring store has to subscribe
+ * instead of only writing. Without this, two tabs of the same game drift apart
+ * and neither is wrong enough to notice.
  *
- * What this adds is `data-theme-pref`, which keeps the *unresolved* choice so
- * the settings UI can show which of the three options is selected -- `system`
- * is not recoverable from `data-theme` alone.
+ * Returns an unsubscribe. It is not called on subscribe, so we seed once first.
  */
-export function applyTheme(theme: ThemePref): void {
-  if (typeof document === 'undefined') return;
-  const resolved: 'light' | 'dark' =
-    theme === 'system'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-      : theme;
-  applyThemeAttributes(resolved);
-  document.documentElement.setAttribute('data-theme-pref', theme);
+export function watchTheme(): () => void {
+  const seed = getThemeSnapshot();
+  usePrefs.setState({ theme: seed.preference, mode: seed.mode });
+  return subscribeToTheme(({ preference, mode }) => {
+    usePrefs.setState({ theme: preference, mode });
+  });
 }
 
 /**
@@ -134,20 +162,4 @@ const SUGGESTED_NAMES = [
 
 export function suggestName(): string {
   return SUGGESTED_NAMES[Math.floor(Math.random() * SUGGESTED_NAMES.length)];
-}
-
-/**
- * Keep `data-theme` in sync while the preference is `system` and the OS flips
- * (sunset, focus mode, someone toggling it mid-game). Call once at boot;
- * returns an unsubscribe.
- */
-export function watchSystemTheme(): () => void {
-  if (typeof window === 'undefined' || !window.matchMedia) return () => {};
-  const mql = window.matchMedia('(prefers-color-scheme: dark)');
-  const onChange = () => {
-    if (usePrefs.getState().theme === 'system') applyTheme('system');
-  };
-  mql.addEventListener('change', onChange);
-  applyTheme(usePrefs.getState().theme);
-  return () => mql.removeEventListener('change', onChange);
 }

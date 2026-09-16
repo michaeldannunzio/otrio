@@ -70,8 +70,15 @@ to a player colour without causing confusion.
 **Status** `--success` `--warning` `--danger` `--info`, each with `-on` (text on the solid fill),
 `-soft` (tinted background) and `-on-soft` (text on that background).
 
-**Players** — six roles each, `--player-{1..4}-*`. Picking the wrong one is the usual way a
-palette quietly fails, so they are named by job:
+**Players** — six roles each, `--player-{1..4}-*`.
+
+> **The CSS variables are 1-based; `PlayerIndex`/`PlayerColor` in TypeScript are 0-based.**
+> `--player-1` is purple, which the engine calls colour `0`. Mapping:
+> `--player-1` purple (N) · `--player-2` red (E) · `--player-3` green (S) · `--player-4` blue (W).
+> Use `playerVar(index, role)` or the `u-player-${index + 1}` form rather than writing the number
+> yourself — an off-by-one here is silent, you simply render another player's colour.
+
+Picking the wrong *role* is the other usual way a palette quietly fails, so they are named by job:
 
 | Role | CSS | Use for | Guarantee |
 |---|---|---|---|
@@ -82,9 +89,21 @@ palette quietly fails, so they are named by job:
 | onSoft | `--player-N-on-soft` | Text on `soft` | ≥ 4.5:1 on `soft` |
 | on | `--player-N-on` | Text on `base` | ≥ 4.5:1 on `base` |
 
-In light mode `--player-2-ui` (dark ochre) looks nothing like `--player-2` (bright gold). That is
-intentional: gold at a legible text weight is ochre. **Pair a `base` swatch with `ui` text** — the
-swatch carries identity, the text carries legibility.
+**Where the four `base` hexes come from:** they are fixed by the official setup artwork
+(`docs/RULES.md` §2.4 — purple north, red east, green south, blue west) and owned by
+`src/scene/materials/palette.ts`. Index order matches `PLAYER_COLOR_NAMES` in `src/game/types.ts`,
+so colour 2 is "green" everywhere. The other five roles are derived here from those same hues
+(measured drift: ≤ 0.4°) at whatever lightness clears the contrast requirement.
+
+Because those hexes were chosen to look right as lit plastic on a board — not as 12px text on a
+panel — several derived roles land a long way from `base`. Light-mode green is an olive `#517400`
+from a lime `#a2d733`; dark-mode purple is a lilac `#b877ff` from `#7237b8`. That is the role doing
+its job. **Pair a `base` swatch with `ui` text** — the swatch carries identity, the text carries
+legibility.
+
+⚠️ `SEAT_COLORS` in `src/net/protocol.ts` is a third, stale palette (red/blue/green/yellow). It is
+being removed — colour is becoming a first-class `PlayerColor` on the wire rather than a function
+of seat. **Do not derive anything from it.**
 
 **Current player.** Put `u-player-2` on any container and everything inside can read
 `--player-current`, `--player-current-ui`, `--player-current-soft`, `--player-current-on-soft`,
@@ -97,7 +116,7 @@ swatch carries identity, the text carries legibility.
 </div>
 ```
 
-`.u-swatch` already carries the 1px `--border-strong` ring that gives a pale fill (gold on white)
+`.u-swatch` already carries the 1px `--border-strong` ring that gives a pale fill (lime green on white)
 its required 3:1 boundary.
 
 **Scene** `--scene-bg` `--board-base` `--board-line` — mirrored in `tokens.ts` for three.js.
@@ -152,6 +171,84 @@ const { mode, preference, systemMode, isFollowingSystem, theme, setPreference, t
 
 Also available: `useThemeMode()`, `useThemeColors()`, and outside React
 `getThemeMode()` / `setThemePreference()` / `toggleTheme()`.
+
+### Ownership: there is exactly one theme preference
+
+`src/hooks/useTheme.ts` is the **sole** reader and writer of the theme preference, and the sole
+caller of `applyThemeAttributes` for theme purposes. Two stores writing `data-theme` means the
+board can end up in a different mode from the chrome around it, depending on which wrote last.
+
+`src/hooks/` sits below `src/store/`, so the dependency points that way: an app store delegating
+down to the theme layer is fine; the theme layer reaching up into app preferences is not.
+
+**Storage key — `otrio:theme-preference`**, value is the bare string `light`, `dark` or `system`
+(absent means `system`). Exported as `THEME_STORAGE_KEY`; import it rather than retyping it.
+
+It is deliberately a flat string and not a field inside a JSON bundle, because the pre-paint script
+below is the most failure-sensitive code in the app — it runs before any module, cannot import, and
+must never throw. One `getItem` and one comparison beats `JSON.parse(raw).state.theme`, which
+couples the first paint to a store's schema version and partialise shape: rename a field and
+dark-mode users get a flash of light with nothing failing loudly. Writes are atomic too, so
+changing the theme cannot clobber a concurrent write to an unrelated preference.
+
+**To delegate from another store**, keep no theme state and no `matchMedia` listener of your own:
+
+```ts
+import {
+  getThemeSnapshot, setThemePreference, subscribeToTheme,
+} from '../hooks/useTheme'
+
+setTheme: (theme) => setThemePreference(theme),          // write
+theme: getThemeSnapshot().preference,                    // seed
+subscribeToTheme(({ preference, mode }) =>               // mirror
+  setState({ theme: preference, mode })),
+```
+
+`subscribeToTheme` fires for *every* cause — an explicit set, the OS flipping while the preference
+is `system`, and another tab changing it. That last one is why mirroring stores must subscribe
+rather than only write, or two tabs of the same game drift apart. It is not called on subscribe;
+seed with `getThemeSnapshot()`.
+
+Do **not** also call `applyThemeAttributes` — the theme store already did, including `data-theme`,
+`data-theme-pref`, `color-scheme` and the `theme-color` meta tag. Calling it directly paints the
+DOM without telling the store, so the next change from anywhere else silently reverts you. In dev
+that earns a one-time console warning naming the right call to make instead.
+
+### Pre-paint script
+
+This belongs in `index.html` and must run before any module, or a dark-mode user sees a flash of
+light on every load. It is the one place the key is duplicated, so keep it matching
+`THEME_STORAGE_KEY`:
+
+```html
+<script>
+  (function () {
+    var root = document.documentElement;
+    try {
+      var pref = localStorage.getItem('otrio:theme-preference');
+      if (pref !== 'light' && pref !== 'dark') pref = 'system';
+      var mode =
+        pref === 'system'
+          ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          : pref;
+      root.setAttribute('data-theme', mode);
+      root.setAttribute('data-theme-pref', pref);
+      root.style.colorScheme = mode;
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = mode === 'dark' ? '#0b0e13' : '#e8ecf3';
+    } catch (err) {
+      /* Remove it rather than defaulting to light: with no `data-theme`,
+         tokens.css resolves dark from `prefers-color-scheme` on its own, which
+         is the correct answer on a dark device. Forcing 'light' here is the
+         exact flash this script exists to prevent. */
+      root.removeAttribute('data-theme');
+    }
+  })();
+</script>
+```
+
+`<html data-theme="system">` as the authored default is fine — `tokens.css` matches dark via
+`:root:not([data-theme="light"])`, so an unrecognised value behaves as "follow the OS".
 
 **How it resolves in CSS**, in cascade order:
 
@@ -208,11 +305,15 @@ double-converts and the scene comes out washed out.
 
 **Two things that must not be skipped:**
 
-1. **Render the rim.** `players[i].rim` is an accessibility guarantee, not a style choice. In a
-   four-colour lightness ladder no single board colour can clear 3:1 against all four fills — a
-   gold piece on the light board is 1.45:1. The rim clears 3:1 against the board for every player
-   in both themes, so the rim is what makes the silhouette perceivable. Use it as an outline,
-   a bevel edge, or the piece's underside.
+1. **Render the rim.** `players[i].rim` is an accessibility guarantee, not a style choice. No
+   single board colour can clear 3:1 against all four fills: the green piece on the light board is
+   1.53:1, and purple on the dark walnut is also 1.53:1. The rim clears 3:1 against the board for
+   every player in both themes, so it is what makes the silhouette perceivable. Use it as an
+   outline, a bevel edge, or the piece's underside.
+
+   Dark-mode rims are derived against the **walnut** board (`#4a3a28`, L\* 25.7 — the lighter of
+   the two plausible boards), so they also clear 3:1 against the darker `--board-base` `#232b38`.
+   Measured: 3.02 / 3.55 / 7.58 / 5.06 on walnut; 3.95 / 4.64 / 9.90 / 6.61 on `--board-base`.
 2. **Render the glyph.** `PLAYERS[i].glyph` (`● ▲ ■ ◆`) on the piece's top face. Colour separation
    is strong but it is never total — see the greyscale row below. This is the cheap redundancy that
    makes the design robust rather than statistically robust.
@@ -323,9 +424,9 @@ each theme (WCAG 2.1: 4.5:1 body text, 3:1 non-text).
 | `--text-muted` | 4.88 | 4.90 |
 | `--border-strong` | 3.01 | 3.00 |
 | `--accent` | 4.51 | 4.52 |
-| player `ui` (worst of 4) | 4.50 | 4.52 |
-| player `rim` vs board | 3.03 | 3.01 |
-| text on `soft` / on `base` | 4.50 | 4.48 |
+| player `ui` (worst of 4) | 4.51 | 4.51 |
+| player `rim` vs board | 3.00 | 3.02 |
+| text on `soft` / on `base` | 4.50 | 5.36 |
 
 ### Player colour separation
 
@@ -333,24 +434,32 @@ Minimum CIEDE2000 across all six pairs, after simulating each vision type
 (Machado/Oliveira/Fernandes 2009 at full severity). ΔE ≥ 15 is comfortably distinguishable; ΔE < 10
 is a problem.
 
-| Vision | light | dark |
+The `base` hexes are theme-independent, so these numbers apply to both themes.
+
+| Vision | min ΔE | tightest pair |
 |---|---|---|
-| typical | 42.0 | 41.3 |
-| deuteranopia (~6% of men) | **26.9** | **21.1** |
-| protanopia | 36.0 | 33.5 |
-| tritanopia | 29.4 | 30.1 |
-| achromatopsia (greyscale) | **15.1** | **11.3** |
+| typical | 44.6 | purple–blue 45 |
+| protanopia | 29.8 | red–green 30 |
+| tritanopia | 17.5 | green–blue 17 |
+| deuteranopia (~6% of men) | **15.4** | red–green 15 |
+| achromatopsia (greyscale) | **9.7** | red–blue 10, green–blue 10 |
 
-Achieved by combining hue separation with a deliberate **lightness ladder** — the four colours sit
-at distinct L\* values (light: 28/46/62/82, dark: 42/54/70/86), which is what keeps them apart once
-hue perception is gone. Greyscale is the weakest axis and is the reason the glyph channel exists.
+Purple/red/green/blue is close to the worst four-way set for red-green deficiency, which is why
+these particular hexes were tuned rather than picked: every pair that converges in lightness
+diverges on the blue-yellow axis that survives. The L\* ladder is 37 / 55 / 80 / 66.
 
-| | key | light | dark | glyph |
-|---|---|---|---|---|
-| P1 | red | `#db0032` | `#f92841` | ● circle |
-| P2 | gold | `#f7c600` | `#ffd24d` | ▲ triangle |
-| P3 | teal | `#00a7a7` | `#00bfbe` | ■ square |
-| P4 | indigo | `#3b28ad` | `#674ad4` | ◆ diamond |
+**Greyscale (9.7) sits just under the ΔE 10 I would want**, and it is the one figure here that does
+not clear its own bar. It is a property of the official hues, not of the derivation, and it is
+covered by two non-colour channels rather than by shifting a hue: the glyph (●▲■◆) and the scene's
+gloss-to-matte **finish ladder**, where the darkest piece is the glossiest and the lightest the most
+matte. Both must be rendered.
+
+| | key | seat | base | light `ui` | dark `ui` | glyph |
+|---|---|---|---|---|---|---|
+| P1 | purple | north | `#7237b8` | `#7237b8` | `#b877ff` | ● circle |
+| P2 | red | east | `#e8501e` | `#c63100` | `#ff6430` | ▲ triangle |
+| P3 | green | south | `#a2d733` | `#517400` | `#a2d733` | ■ square |
+| P4 | blue | west | `#1cafd2` | `#00738c` | `#1cafd2` | ◆ diamond |
 
 ---
 

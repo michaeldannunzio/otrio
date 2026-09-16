@@ -4,22 +4,20 @@ import { alias } from './vite.config';
 /* ------------------------------------------------------------------ *
  * Why this is a separate file from vite.config.ts
  *
- * vitest 2.1.x declares `vite: ^5.0.0` as a hard dependency, but this app
- * runs on vite 6. npm therefore installed a SECOND copy of Vite nested at
- * node_modules/vitest/node_modules/vite (5.4.21).
+ * Originally it had to be. vitest 2.1.x hard-depended on `vite: ^5` while the
+ * app runs vite 6, so npm installed a second Vite nested under vitest and the
+ * two `defineConfig` types were structurally incompatible - a `test` block
+ * inside vite.config.ts made tsc reject the whole config.
  *
- * That makes `vite` and `vitest/config` two structurally different type
- * universes. Putting a `test` block inside vite.config.ts makes tsc reject
- * the whole config, because @vitejs/plugin-react returns a vite-6 Plugin
- * where vitest's defineConfig expects a vite-5 Plugin.
+ * That is fixed: vitest is now ^3, which supports Vite 6, and there is exactly
+ * one copy of Vite in the tree. Verified 2026-09-16 - `find node_modules
+ * -path '*\/node_modules/vite'` returns nothing nested.
  *
- * Keeping the test config in its own file - with no Vite plugins in it -
- * means the two copies never have to agree. Vitest prefers vitest.config.ts
- * over vite.config.ts automatically, so `npm test` picks this up.
- *
- * The real fix is `vitest@^3`, which supports Vite 6. That is a package.json
- * change and package.json is not owned by this agent; see the README's
- * "Known rough edges" section.
+ * The file stays separate now for a plainer reason: the test runner has no
+ * business loading the React plugin, the dev-server proxy or the HTTPS
+ * certificate logic, none of which it uses. Vitest prefers vitest.config.ts
+ * over vite.config.ts automatically. Merging the two back together would work;
+ * it would just make both harder to read.
  * ------------------------------------------------------------------ */
 
 export default defineConfig({

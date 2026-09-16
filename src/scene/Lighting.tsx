@@ -12,9 +12,19 @@
  *     <Scene theme={myThemeStore.mode} />                      // normal case
  *     <Scene theme="dark" lighting={{ keyIntensity: 2.2 }} />  // tweak one knob
  *
- * `LIGHTING_PRESETS` is exported so the theming agent can read the colours we
- * settled on (notably `background`, which the CSS around the canvas will
- * usually want to match) instead of duplicating them.
+ * `LIGHTING_PRESETS` is exported so the values here are inspectable rather than
+ * buried. Ownership, so nothing ends up with two sources of truth:
+ *
+ *   - LIGHT RIG (intensities, colours, exposure, fog distances): ours. They are
+ *     derived from this scene's camera distances, board scale and table size,
+ *     which the theme layer has no way to know.
+ *   - BACKGROUND / FOG COLOUR: `styles/tokens.ts` `sceneBg` is canonical. It is
+ *     what the CSS behind the canvas paints, and a mismatch is a visible seam
+ *     at the canvas edge. Our defaults mirror it; pass it explicitly to be sure.
+ *   - BOARD TINT: `Board.tsx`'s `BOARD_TINTS`, which explains why it is not the
+ *     theme's `scene.board.base`.
+ *   - PLAYER COLOURS: the theme's `players[]`, always. Nothing here hardcodes
+ *     one; `Scene`'s optional `armColors` prop takes them from the caller.
  *
  * ============================================================================
  * WHY THE ENVIRONMENT MAP IS BUILT HERE INSTEAD OF LOADED
@@ -46,18 +56,26 @@
  * proud), clearly visible, and never long enough to cross into a neighbouring
  * space and be mistaken for a piece.
  *
- * The shadow camera is clamped tightly to the board rather than the table. At
- * the default 1024 that is 6.2 units across 1024 texels — 0.44 mm per texel at
- * the board's real scale — which is enough to resolve a piece's contact edge.
- * 512 (the mobile default) is still 0.9 mm and perfectly adequate.
+ * The shadow camera is clamped to the board rather than the table. 3.75 is not
+ * a guess: it is the smallest half-extent that contains the cross's arm tips
+ * AND the shadows they throw onto the cloth, measured in the key light's own
+ * basis. (3.1 — roughly the board's half-diagonal — looks right and clips the
+ * north and east arms.) At the default 1024 that is 7.5 units across 1024
+ * texels, 0.53 mm per texel at the board's real scale, which resolves a piece's
+ * contact edge cleanly. 512, the mobile default, is 1.05 mm and still fine
+ * because the shadows in question are only ~4 mm long.
+ *
+ * Change `keyDirection` and you may need to change `shadowBounds` with it.
  */
 
 import * as React from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { BOARD_TOP_Y } from './Board';
+import { BOARD_TOP_Y, type ThemeMode } from './Board';
 
-export type ThemeMode = 'light' | 'dark';
+// Declared in Board.tsx (which this module already depends on) so there is one
+// definition; re-exported here because this is where callers expect it.
+export type { ThemeMode };
 
 /* ========================================================================== *
  * Presets
@@ -71,7 +89,20 @@ interface EnvPanel {
 }
 
 export interface LightingPreset {
-  /** Canvas clear colour and fog colour. The CSS around the canvas usually matches this. */
+  /**
+   * Canvas clear colour, and by default the fog colour too.
+   *
+   * These MIRROR `styles/tokens.ts`'s `sceneBg`, which is canonical — it is
+   * what the CSS behind and around the canvas uses, and any disagreement shows
+   * up as a hard seam at the canvas edge. We cannot import it (this directory
+   * takes theme input as props and never reads theme state), so the safest
+   * wiring is for the host to pass it explicitly and make the question moot:
+   *
+   *     const scene = useSceneTheme();
+   *     <Scene lighting={{ background: scene.background, fog: scene.fog }} />
+   *
+   * Until it does, these defaults match tokens.ts as of writing.
+   */
   background: string;
   exposure: number;
   environmentIntensity: number;
@@ -93,7 +124,7 @@ export interface LightingPreset {
 
 export const LIGHTING_PRESETS: Readonly<Record<ThemeMode, LightingPreset>> = {
   light: {
-    background: '#e6e1d8',
+    background: '#cbd3e0', // = tokens.ts light.sceneBg
     exposure: 1.0,
     environmentIntensity: 1.0,
     keyIntensity: 2.5,
@@ -110,7 +141,7 @@ export const LIGHTING_PRESETS: Readonly<Record<ThemeMode, LightingPreset>> = {
     fogFar: 28,
   },
   dark: {
-    background: '#0f1211',
+    background: '#090c11', // = tokens.ts dark.sceneBg
     exposure: 0.98,
     environmentIntensity: 0.46,
     keyIntensity: 1.85,
@@ -445,8 +476,8 @@ export function Lighting({
         shadow-camera-right={shadowBounds}
         shadow-camera-top={shadowBounds}
         shadow-camera-bottom={-shadowBounds}
-        shadow-camera-near={distance - shadowBounds - 1}
-        shadow-camera-far={distance + shadowBounds + 2}
+        shadow-camera-near={Math.max(0.1, distance - shadowBounds - 1.5)}
+        shadow-camera-far={distance + shadowBounds + 2.5}
         shadow-bias={shadowBias}
         shadow-normalBias={shadowNormalBias}
       />

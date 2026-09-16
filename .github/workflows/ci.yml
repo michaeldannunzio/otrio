@@ -33,6 +33,28 @@ jobs:
       # this fails loudly if package.json and package-lock.json disagree.
       - run: npm ci
 
+      # Lint runs before the typecheck because its failures are usually cheaper
+      # to read. It is NOT wired into `npm run build` on purpose: a lint finding
+      # should not stand between someone and a working artifact.
+      #
+      # continue-on-error is a temporary measure, not the intended end state.
+      # At the time this was added the tree had 18 pre-existing lint errors
+      # across five owners' files (async JSX handlers, undescribed
+      # eslint-disable comments, type-only imports). A CI job that is red from
+      # its first run teaches people to ignore CI, which is worse than no CI.
+      #
+      # REMOVE continue-on-error once `npm run lint` is clean — the findings
+      # are still printed in the job log either way.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      # Same reasoning, more so: no format pass has been run yet, because
+      # Prettier would rewrite 77 of 131 files at once. See the README.
+      - name: Format check
+        run: npm run format:check
+        continue-on-error: true
+
       - name: Typecheck (app + tooling + server)
         run: npm run typecheck
 

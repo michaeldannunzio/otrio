@@ -60,9 +60,35 @@ export type PlayerId = 0 | 1 | 2 | 3;
 export type SeatId = 0 | 1 | 2 | 3;
 
 /**
- * Colour names in `PlayerId` order, from the official instruction-sheet
- * artwork (§2.4). The scene layer owns the actual materials; this exists so
- * every agent labels colour 2 "green" rather than inventing its own mapping.
+ * The canonical colour *names*, indexed by `PlayerId`, read off the official
+ * instruction-sheet artwork (RULES.md §2.4).
+ *
+ * This module owns the names. `src/scene/materials/palette.ts` owns the
+ * hexes. Everyone else imports one or the other rather than writing their own.
+ *
+ * ## The index order is load-bearing
+ *
+ * Three other lists must stay identical to this one, index for index:
+ *
+ * | Where                            | Constant        |
+ * |----------------------------------|-----------------|
+ * | `src/net/protocol.ts`            | `PLAYER_COLORS` |
+ * | `src/scene/materials/palette.ts` | `PLAYER_ORDER`  |
+ * | `src/styles/tokens.ts`           | `PLAYERS[].key` |
+ *
+ * All four currently read `purple, red, green, blue`. Reordering any one of
+ * them silently repaints the board: a piece placed by colour 2 would render
+ * in another player's colour, and nothing would throw.
+ *
+ * The order comes from the physical board — clockwise from the north arm
+ * (§4.8) — not from how the hexes look. That distinction has already caused
+ * one near-miss: describing this palette from its hex values instead of its
+ * index produced "purple, red, cyan, lime", which swaps green and blue. If
+ * you are reconciling these lists, compare indices, never appearances.
+ *
+ * There is deliberately no parity test here. Asserting it would mean importing
+ * from `src/net/`, and the dependency direction is one-way: net depends on
+ * game, never the reverse. That assertion belongs on the net side.
  */
 export const PLAYER_COLOR_NAMES = ['purple', 'red', 'green', 'blue'] as const;
 export type PlayerColorName = (typeof PLAYER_COLOR_NAMES)[number];

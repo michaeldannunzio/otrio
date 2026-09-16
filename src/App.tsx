@@ -4,10 +4,9 @@ import {
   connect,
   routeOf,
   useNet,
-  usePrefs,
   useTransportHolder,
   useUi,
-  watchSystemTheme,
+  watchTheme,
 } from './store';
 import { roomCodeFromLocation } from './ui/lib/roomCode';
 import { useNarration } from './ui/hooks/useNarration';
@@ -34,13 +33,14 @@ export function App() {
   const transport = useTransportHolder((s) => s.transport);
   const route = useNet(routeOf);
   const setPrefilledCode = useUi((s) => s.setPrefilledCode);
-  const theme = usePrefs((s) => s.theme);
+
 
   useNarration();
 
-  // Keep `data-theme` correct while the OS flips and the preference is
-  // "match device".
-  useEffect(() => watchSystemTheme(), [theme]);
+  // Mirror the theme preference, which `src/hooks/useTheme.ts` owns. Subscribed
+  // once for the life of the app: it also fires when the OS flips while on
+  // "match device", and when another tab changes it.
+  useEffect(() => watchTheme(), []);
 
   // A tapped invite link arrives as ?room=CODE. Pick it up once, then clean the
   // URL so a later reload does not try to re-join a room that has since ended.

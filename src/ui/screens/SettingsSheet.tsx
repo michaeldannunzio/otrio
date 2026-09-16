@@ -1,5 +1,4 @@
 import {
-  applyTheme,
   leaveRoom,
   outcomeOf,
   useNet,
@@ -63,10 +62,11 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           legend="Appearance"
           name="theme"
           value={prefs.theme}
-          onChange={(t) => {
-            prefs.setTheme(t);
-            applyTheme(t);
-          }}
+          // `setTheme` delegates to the theme owner, which applies the DOM
+          // attributes itself and notifies the mirror. Calling
+          // `applyThemeAttributes` here as well would paint without telling the
+          // store, and the next change from anywhere would silently revert it.
+          onChange={(t) => prefs.setTheme(t)}
           options={[
             { value: 'system', label: 'Match device' },
             { value: 'light', label: 'Light' },

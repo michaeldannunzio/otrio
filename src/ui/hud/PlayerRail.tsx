@@ -1,27 +1,17 @@
 import { PIECE_SIZES } from '../../net/protocol';
-import type { PlayerView, Reserve } from '../../net/protocol';
+import type { PlayerColor, PlayerView, Reserve } from '../../net/protocol';
 import {
+  colourLabel,
   coloursOfSeat,
   dueColour,
-  hasColourReserves,
   playersBySeat,
-  reserveFor,
-  reserveOfColour,
-  totalReserve,
+  reservesOfSeat,
+  totalRemainingForSeat,
   useNet,
   usePrefs,
   useUi,
 } from '../../store';
-import {
-  ReserveTray,
-  SeatBadge,
-  colourClass,
-  colourName,
-  cx,
-  seatClass,
-  seatColorName,
-  seatIdentityText,
-} from '../components/Ring';
+import { ColourBadge, ReserveTray, colourClass, cx, seatIdentityText } from '../components/Ring';
 import { ConnectionDot } from './ConnectionDot';
 
 /**
@@ -60,18 +50,14 @@ export function PlayerRail() {
           <PlayerCard
             key={player.playerId}
             player={player}
-            reserve={reserveFor(room, player.seat)}
             isSelf={player.playerId === selfId}
             isTurn={room.phase === 'playing' && turn === player.seat && !player.forfeited}
             isHost={player.playerId === room.hostPlayerId}
             showLetters={sizeLabels}
             colours={coloursOfSeat(room, player.seat)}
             due={room.phase === 'playing' && turn === player.seat ? dueColour(room) : null}
-            colourReserves={
-              hasColourReserves(room)
-                ? coloursOfSeat(room, player.seat).map((c) => reserveOfColour(room, c))
-                : null
-            }
+            trays={reservesOfSeat(room, player.seat)}
+            total={totalRemainingForSeat(room, player.seat)}
             onOpen={() => openSheet('players')}
           />
         ))}
@@ -82,32 +68,38 @@ export function PlayerRail() {
 
 function PlayerCard({
   player,
-  reserve,
   isSelf,
   isTurn,
   isHost,
   showLetters,
   colours,
   due,
-  colourReserves,
+  trays,
+  total,
   onOpen,
 }: {
   player: PlayerView;
-  reserve: Reserve;
   isSelf: boolean;
   isTurn: boolean;
   isHost: boolean;
   showLetters: boolean;
-  /** Colours this seat controls. Two in the official 2-player game. */
-  colours: number[];
-  /** The colour due this turn, when this seat is to move and we know it. */
-  due: number | null;
-  /** Per-colour reserves, when the referee provides them. */
-  colourReserves: Array<Reserve | null> | null;
+  /** Colours this seat plays. Two in the official 2-player game. */
+  colours: PlayerColor[];
+  /** The colour due this turn, when this seat is to move. */
+  due: PlayerColor | null;
+  /** One tray per colour this seat plays. */
+  trays: Array<{ colour: PlayerColor; reserve: Reserve }>;
+  /** Rings left across every colour they play. */
+  total: number;
   onOpen: () => void;
 }) {
-  const total = totalReserve(reserve);
-  const summary = PIECE_SIZES.map((s) => `${reserve[s]} ${s}`).join(', ');
+  // Per colour, because in a two-player game "7 left" across two colours is a
+  // number you cannot act on -- what matters is 3 purple and 4 green.
+  const summary = trays
+    .map(({ colour, reserve }) =>
+      `${colourLabel(colour)} ${PIECE_SIZES.map((s) => `${reserve[s]} ${s}`).join(', ')}`,
+    )
+    .join('; ');
 
   return (
     <li className="o-rail__item">
@@ -125,14 +117,12 @@ function PlayerCard({
           isTurn && 'is-turn',
           player.forfeited && 'is-gone',
           player.connection !== 'online' && 'is-away',
-          due !== null ? colourClass(due) : seatClass(player.seat),
+          colourClass(due ?? colours[0] ?? null),
         )}
         onClick={onOpen}
         aria-label={[
-          colours.length > 1
-            ? `${player.name}, playing ${colours.map((c) => colourName(c)).join(' and ')}`
-            : seatIdentityText(player.seat, player.name),
-          due !== null && colours.length > 1 ? `${colourName(due)} due now` : null,
+          seatIdentityText(colours, player.name),
+          due !== null && colours.length > 1 ? `${colourLabel(due)} due now` : null,
           isSelf ? 'you' : null,
           isHost ? 'host' : null,
           isTurn ? 'to move now' : null,
@@ -160,7 +150,7 @@ function PlayerCard({
                 key={c}
                 className={cx('o-pcard__badge', due === c && 'is-due', due !== null && due !== c && 'is-idle')}
               >
-                <SeatBadge seat={c} size="sm" />
+                <ColourBadge colour={c} size="sm" />
               </span>
             ))}
           </span>
@@ -172,28 +162,18 @@ function PlayerCard({
             name={player.name}
           />
         </span>
-        {colourReserves ? (
-          <span className="o-pcard__trays">
-            {colours.map((c, i) => (
-              <ReserveTray
-                key={c}
-                reserve={colourReserves[i] ?? reserve}
-                seat={c}
-                size="sm"
-                showLetters={showLetters}
-                label={`${player.name}, ${colourName(c)}`}
-              />
-            ))}
-          </span>
-        ) : (
-          <ReserveTray
-            reserve={reserve}
-            seat={colours.length === 1 ? player.seat : null}
-            size="sm"
-            showLetters={showLetters}
-            label={player.name}
-          />
-        )}
+        <span className="o-pcard__trays">
+          {trays.map(({ colour, reserve }) => (
+            <ReserveTray
+              key={colour}
+              reserve={reserve}
+              colour={colour}
+              size="sm"
+              showLetters={showLetters}
+              label={colours.length > 1 ? `${player.name}, ${colourLabel(colour)}` : player.name}
+            />
+          ))}
+        </span>
         {isSelf ? <span className="o-pcard__you">You</span> : null}
       </button>
     </li>
@@ -214,10 +194,19 @@ export function PlayerDetails() {
   return (
     <ul className="o-plist">
       {players.map((player) => {
-        const reserve = reserveFor(room, player.seat);
+        const trays = reservesOfSeat(room, player.seat);
         return (
-          <li className={cx('o-plist__item', seatClass(player.seat))} key={player.playerId}>
-            <SeatBadge seat={player.seat} />
+          <li
+            className={cx('o-plist__item', colourClass(player.colors[0] ?? null))}
+            key={player.playerId}
+          >
+            <span className="o-seat__badges">
+              {player.colors.length > 0 ? (
+                player.colors.map((c) => <ColourBadge key={c} colour={c} />)
+              ) : (
+                <ColourBadge colour={null} />
+              )}
+            </span>
             <div className="o-plist__body">
               <p className="o-plist__name">
                 {player.name}
@@ -226,15 +215,24 @@ export function PlayerDetails() {
                   <span className="o-plist__tag">host</span>
                 ) : null}
               </p>
-              <p className="o-plist__meta">{seatColorName(player.seat)}</p>
-              <p className="o-plist__counts">
-                {PIECE_SIZES.map((size) => (
-                  <span key={size} className="o-plist__count">
-                    <span className="o-plist__countValue u-tabular">{reserve[size]}</span>
-                    <span className="o-plist__countLabel">{size}</span>
-                  </span>
-                ))}
+              <p className="o-plist__meta">
+                {player.colors.length > 0
+                  ? player.colors.map((c) => colourLabel(c)).join(' and ')
+                  : `Seat ${player.seat + 1}`}
               </p>
+              {trays.map(({ colour, reserve }) => (
+                <p className="o-plist__counts" key={colour}>
+                  {trays.length > 1 ? (
+                    <span className="o-plist__countColour">{colourLabel(colour)}</span>
+                  ) : null}
+                  {PIECE_SIZES.map((size) => (
+                    <span key={size} className="o-plist__count">
+                      <span className="o-plist__countValue u-tabular">{reserve[size]}</span>
+                      <span className="o-plist__countLabel">{size}</span>
+                    </span>
+                  ))}
+                </p>
+              ))}
             </div>
             <ConnectionDot
               connection={player.connection}

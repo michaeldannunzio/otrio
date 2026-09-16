@@ -172,7 +172,7 @@
 }
 
 /* A colour swatch. The border guarantees the 3:1 boundary that a pale fill
- * (the gold player on a white panel) does not provide on its own. */
+ * (the lime-green player on a white panel) does not provide on its own. */
 .u-swatch {
   display: inline-grid;
   place-items: center;

@@ -269,7 +269,23 @@ export function getSceneTheme(mode: ThemeMode): SceneTheme {
 
 /* ───────────────────────── DOM application ────────────────────────────── */
 
+/** Holds the RESOLVED mode: always `light` or `dark`. `tokens.css` keys off it. */
 export const THEME_ATTRIBUTE = 'data-theme'
+
+/**
+ * Holds the UNRESOLVED choice: `light`, `dark` or `system`.
+ *
+ * Kept separate because `system` is not recoverable from `data-theme` alone —
+ * a settings UI needs to know whether "Dark" is selected or merely resolved.
+ * The pre-paint script in `index.html` sets both.
+ */
+export const THEME_PREFERENCE_ATTRIBUTE = 'data-theme-pref'
+
+export interface ApplyThemeOptions {
+  root?: HTMLElement
+  /** The unresolved choice, written to `data-theme-pref`. Omit to leave it. */
+  preference?: ThemePreference
+}
 
 /**
  * Put a resolved mode on the document.
@@ -277,16 +293,70 @@ export const THEME_ATTRIBUTE = 'data-theme'
  * Sets `data-theme` (which `tokens.css` keys off) and, just as importantly,
  * `color-scheme` — that is what makes form controls, scrollbars and the
  * browser's own UI follow the theme instead of staying stubbornly light.
+ * Also updates the `theme-color` meta tag so a phone's status bar matches.
+ *
+ * ┌───────────────────────────────────────────────────────────────────────────┐
+ * │ APPLICATION CODE SHOULD NOT CALL THIS. Call `setThemePreference()` from    │
+ * │ `src/hooks/useTheme.ts` instead — it persists the choice, resolves         │
+ * │ `system`, notifies subscribers AND calls this. Calling this directly       │
+ * │ paints the DOM without telling the store, so the next state change from    │
+ * │ anywhere else silently reverts you. It is exported for tests and for       │
+ * │ `useTheme` itself; in dev, any other caller gets a one-time warning.       │
+ * └───────────────────────────────────────────────────────────────────────────┘
  */
-export function applyThemeAttributes(mode: ThemeMode, root?: HTMLElement): void {
-  const el = root ?? (typeof document !== 'undefined' ? document.documentElement : null)
+export function applyThemeAttributes(
+  mode: ThemeMode,
+  options?: HTMLElement | ApplyThemeOptions
+): void {
+  // Back-compatible: (mode), (mode, rootElement) and (mode, { root, preference }).
+  const opts: ApplyThemeOptions =
+    options && typeof (options as HTMLElement).setAttribute === 'function'
+      ? { root: options as HTMLElement }
+      : ((options as ApplyThemeOptions | undefined) ?? {})
+
+  const el = opts.root ?? (typeof document !== 'undefined' ? document.documentElement : null)
   if (!el) return
+
+  warnOnForeignApply()
+
   el.setAttribute(THEME_ATTRIBUTE, mode)
+  if (opts.preference) el.setAttribute(THEME_PREFERENCE_ATTRIBUTE, opts.preference)
   el.style.colorScheme = mode
-  const meta = typeof document !== 'undefined'
-    ? document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-    : null
+
+  const meta =
+    typeof document !== 'undefined'
+      ? document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      : null
   if (meta) meta.content = COLORS[mode].bg
+}
+
+/* `useTheme` brackets its own calls with this so the dev warning below can tell
+ * the owner apart from everyone else. Not exported from the barrel. */
+let insideThemeStore = false
+let warnedForeignApply = false
+
+/** @internal — for `useTheme.ts` only. */
+export function runAsThemeStore<T>(fn: () => T): T {
+  insideThemeStore = true
+  try {
+    return fn()
+  } finally {
+    insideThemeStore = false
+  }
+}
+
+function warnOnForeignApply(): void {
+  if (insideThemeStore || warnedForeignApply) return
+  const dev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false
+  if (!dev) return
+  warnedForeignApply = true
+  console.warn(
+    '[otrio/theme] applyThemeAttributes() was called from outside the theme store.\n' +
+      'The DOM is now painted with a mode the store does not know about, so the next\n' +
+      'change from anywhere else will silently revert it. Use setThemePreference()\n' +
+      "from 'src/hooks/useTheme.ts' instead — it persists, resolves 'system', notifies\n" +
+      'subscribers and applies the attributes. This warning fires once per session.'
+  )
 }
 
 /* ───────────────────────── drift detection ────────────────────────────── */

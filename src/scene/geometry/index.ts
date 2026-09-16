@@ -6,7 +6,12 @@
  * `pieceProfiles.ts` for the shapes and where their proportions come from.
  */
 
-export { buildLatheGeometry, filletArc, estimateTriangles } from './lathe';
+export {
+  OUTLINE_NORMAL_ATTRIBUTE,
+  buildLatheGeometry,
+  filletArc,
+  estimateTriangles,
+} from './lathe';
 export type { LathePoint, LatheOptions } from './lathe';
 
 export {
@@ -16,11 +21,12 @@ export {
   NEST_GAP,
   RING_WALL,
   RADIAL_SEGMENTS,
+  markPlacement,
   pieceProfile,
   ringProfile,
   pegProfile,
 } from './pieceProfiles';
-export type { PieceSize, PieceMetrics, Detail } from './pieceProfiles';
+export type { PieceSize, PieceMetrics, Detail, MarkPlacement } from './pieceProfiles';
 
 export {
   PIECE_TEXTURE_TILE,

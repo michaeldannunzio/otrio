@@ -207,6 +207,10 @@ docs/          Rules, WebRTC notes, deployment, texture licensing.
 | `npm run build` | Typecheck all three projects, then bundle to `dist/` |
 | `npm run preview` | Serve the real production build, also on the LAN |
 | `npm run typecheck` | `tsc -b --noEmit` across app, tooling and server |
+| `npm run lint` | ESLint. Not part of `build` — see below |
+| `npm run lint:fix` | Same, applying the safe auto-fixes |
+| `npm run format` | Prettier, rewriting in place |
+| `npm run format:check` | Prettier, reporting only |
 | `npm test` | Vitest, node environment |
 | `npm run server` | The WebSocket host |
 | `npm run textures` | Re-download / re-process the textures (idempotent, offline-safe) |
@@ -271,6 +275,53 @@ to only one of them produces a project that typechecks and 404s, or vice versa.
 
 ---
 
+## Linting and formatting
+
+`eslint.config.js` is not a generic preset. Every rule it turns on or off maps
+to something that actually went wrong while this was built, or to a rule in the
+house standards. The reasoning is in the file, next to each rule.
+
+The one worth knowing about is a small local rule, **`local/no-unbundlable-import`**.
+It rejects any dynamic `import()` whose specifier is not a string literal, and
+any that carries `@vite-ignore`. Both produce the same failure: the bundler
+never follows the import, emits no chunk, and the app 404s at runtime from a
+build that exited 0. That is how this project shipped a production bundle with
+71 modules and no three.js in it. It is a custom rule rather than a text search
+for `@vite-ignore`, because the codebase now contains several comments that
+*explain* that bug, and banning the marker by text would flag the documentation
+along with the disease.
+
+Formatting is Prettier's job alone — `eslint-config-prettier` runs last and
+switches off every stylistic ESLint rule, so the two cannot disagree.
+
+**Lint is deliberately not part of `npm run build`.** A lint finding should not
+stand between someone and a working artifact. It runs in CI instead.
+
+### Honest state of it
+
+- **`npm run lint`: 18 errors, 113 warnings.** All pre-existing, none
+  build-breaking. The errors are 7 async functions passed to JSX attributes
+  expecting `void`, 5 `eslint-disable` comments with no stated reason, 4
+  type-only imports not marked `type`, plus two singletons. They belong to the
+  UI, scene and animation owners rather than to this config.
+- The warnings are mostly 63 genuinely redundant type assertions (spot-checked:
+  `easeOutCubic as Easing`, where the value is already an `Easing`) and 15
+  `react-hooks/exhaustive-deps`. Graded to warnings on purpose — a lint that
+  fails with 167 errors on its first run is a lint everyone switches off.
+- **No format pass has been run.** Prettier would rewrite **77 of 131 files**
+  across every owner's directory at once. That belongs in a single isolated
+  commit at a quiet moment, not mixed into feature work. Run `npm run format`
+  when nobody else is mid-edit.
+- Both CI steps are `continue-on-error` until the above is cleared, so the job
+  reports findings without being red from its first run. Remove that once
+  `npm run lint` is clean — the marker comment in the workflow says so.
+
+Only the classic two React hook rules are enabled (`rules-of-hooks` as an
+error, `exhaustive-deps` as a warning). `eslint-plugin-react-hooks@7` ships the
+full React Compiler rule set in both its presets, which is a real adoption
+decision with real work behind it; that belongs to the UI and scene owners, not
+to the build config.
+
 ## Deployment
 
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Short version: one container
@@ -297,27 +348,21 @@ the repo has **no commits yet** (`git rev-list --count HEAD` is 0), so there is
 no revision to pin these to, and the tree moved under this section while it was
 being written.
 
-> ### Current state: the tree does not typecheck
+> ### Current state: green
 >
-> As of **2026-09-16 00:24**, `npm run typecheck` reports **14 errors** and
-> `npm run build` therefore fails at the `tsc -b` step.
+> As of **2026-09-16 00:45**, `npm run typecheck` reports **0 errors**,
+> `npm run build` exits 0, and `npm test` is **165/165**.
 >
-> This is a known, deliberate midpoint, not a regression. The wire protocol is
-> being changed so the game can follow the official Otrio rules exactly: the old
-> `GameSnapshot` could not express the official 2-player game, in which each
-> player controls **two** colours and must alternate between them every turn.
-> The change makes `PlayerColor = 0|1|2|3` first-class on the wire and severs
-> colour from seat — `SEAT_COLORS` and `PlayerView.color` are deleted,
-> `CellState` slots hold a `PlayerColor` rather than a `Seat`, `reserves`
-> becomes length-4 indexed by colour, `GameSnapshot` gains `colorsInPlay` /
-> `turnColors` / `winnerColor`, and `WinningLine` gains `color`.
+> The protocol change that this section previously described as in flight has
+> landed on both sides. `PlayerColor = 0|1|2|3` is now first-class on the wire
+> and severed from `Seat`, so the official 2-player game — each player
+> controlling two colours and alternating every turn — is representable. The
+> shared referee lives in `src/net/referee.ts` and both backends drive it.
 >
-> The 14 errors are that change half-applied across `server/src/rooms.ts` (5),
-> `src/net/rtcTransport.ts` (4), `src/game/adapter.ts` (4) and
-> `src/ui/components/BoardStage.tsx` (1). They resolve when both sides land.
+> `npm run lint` still reports **18 errors and 113 warnings**, all pre-existing
+> and none of them build-breaking. See "Linting and formatting".
 
-**Verified by actually running it — green as of 2026-09-16 00:15, before the
-protocol change began:**
+**Verified by actually running it — as of 2026-09-16 00:45:**
 
 - **`npm run build` succeeded.** Typecheck of all three projects plus the
   production bundle, exit 0, ~2.7s.
@@ -365,6 +410,11 @@ protocol change began:**
 - **The deployment configs are syntactically valid.** `fly.toml`,
   `railway.toml` (TOML), `render.yaml` and the CI workflow (YAML) all parse.
   That is *all* that has been checked about them — see below.
+- **The lint rules fire on the bugs they were written for.** Verified against a
+  throwaway file containing each pattern: a variable import specifier, a
+  literal import carrying `@vite-ignore`, an unused parameter, an unjustified
+  `any`, a floating promise and a swallowing `catch {}` were each reported —
+  and a clean literal `import()` alongside them was correctly left alone.
 
 **Known not to work yet:**
 
@@ -429,18 +479,18 @@ protocol change began:**
 - **The container has never been built.** Docker is not installed on the
   machine this was assembled on, so `Dockerfile` has not been run even once.
 
-**Known rough edges in the toolchain:**
+**Toolchain rough edges — all three now fixed, recorded because the reasoning
+still matters:**
 
-- **`vitest@2.1.x` depends on `vite@^5`, but this app uses `vite@6`.** npm has
-  installed a second copy of Vite (5.4.21) nested under vitest. Tests run, but
-  they run through a different Vite than the app builds with. This is why the
-  test config lives in its own `vitest.config.ts` rather than a `test` key in
-  `vite.config.ts` — with both in one file, the two Vite copies' types are
-  structurally incompatible and `tsc` rejects the config outright. The real fix
-  is `vitest@^3`, which is a `package.json` change.
-- **`ws` is in `devDependencies`**, but the server needs it at runtime. The
-  Dockerfile works around this by copying `node_modules/ws` directly (it is
-  zero-dependency and 196K). It should move to `dependencies`.
-- **`@types/node` is not declared in `package.json`**; it resolves only because
-  something else pulled it in transitively. It should be an explicit
-  `devDependency`, since two of the three tsconfigs name it in `types`.
+- **`vitest` is now `^3`.** It was `^2.1.x`, which hard-depended on `vite@^5`
+  while the app runs vite 6, so npm installed a second Vite nested under
+  vitest. Verified resolved: there is now exactly one copy of Vite in the tree,
+  and all 165 tests pass under 3.2.7. `vitest.config.ts` remains a separate
+  file, but now for readability rather than necessity.
+- **`ws` moved to `dependencies`.** The server imports it at runtime. The
+  Dockerfile used to work around this by hand-copying `node_modules/ws`, which
+  worked only because `ws` happens to have no transitive dependencies — a
+  second one would have produced a container that built cleanly and died on its
+  first import. It is now a plain `npm ci --omit=dev`.
+- **`@types/node` is now declared.** It previously resolved only transitively,
+  while two of the three tsconfigs name it in `types`.

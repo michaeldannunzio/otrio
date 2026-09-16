@@ -9,8 +9,9 @@ import {
   ui,
   useNet,
 } from '../../store';
+import type { PlayerColor } from '../../net/protocol';
 import { formatCountdown } from '../lib/copy';
-import { SeatBadge, colourClass, colourName, cx, seatClass, seatColorName } from '../components/Ring';
+import { ColourBadge, colourClass, colourLabel, cx } from '../components/Ring';
 
 /**
  * Whose turn it is. The brief said unmissable, so:
@@ -53,7 +54,7 @@ export function TurnBanner() {
     lastAnnounced.current = key;
     // In the two-player variant the colour is as much of the instruction as the
     // turn is: "your turn" without it is not actionable.
-    const colourPart = alternates && due !== null ? ` Play ${colourName(due)}.` : '';
+    const colourPart = alternates && due !== null ? ` Play ${colourLabel(due)}.` : '';
     if (isMyTurn) {
       ui.announce(`Your turn.${colourPart}`, 'assertive');
     } else if (role !== 'none') {
@@ -78,14 +79,14 @@ export function TurnBanner() {
         isMyTurn && 'is-mine',
         paused && 'is-paused',
         pendingMove && 'is-pending',
-        seatClass(due ?? current.seat),
+        colourClass(due ?? pair[0] ?? null),
       )}
       // The live region lives in <Announcer/>; this one only needs a role so a
       // user who navigates here on purpose hears the current state.
       role="status"
-      aria-label={`${label}. ${seatColorName(current.seat)}.`}
+      aria-label={`${label}. ${due !== null ? colourLabel(due) : pair.map((c) => colourLabel(c)).join(' and ')}.`}
     >
-      <SeatBadge seat={due ?? current.seat} size="lg" />
+      <ColourBadge colour={due ?? pair[0] ?? null} size="lg" />
       <span className="o-turn__label">
         {label}
         {pendingMove ? <span className="o-turn__pending"> — placing…</span> : null}
@@ -115,8 +116,13 @@ function DueColour({
   pair,
   isMine,
 }: {
-  due: number | null;
-  pair: number[];
+  // Genuinely colours, not seats: `due` comes from `dueColour(room)` and `pair`
+  // from `coloursOfSeat(room, seat)`, both of which return `PlayerColor`. Typed
+  // as such rather than widened to `number` -- a seat and a colour are different
+  // quantities now, and letting them meet at `number` is the conflation the
+  // protocol change exists to prevent.
+  due: PlayerColor | null;
+  pair: PlayerColor[];
   isMine: boolean;
 }) {
   if (due === null) {
@@ -124,11 +130,11 @@ function DueColour({
       <span className="o-turn__colours" title="This player uses two colours, switching every turn">
         {pair.map((c) => (
           <span key={c} className={cx('o-turn__colourChip is-unknown', colourClass(c))}>
-            <span aria-hidden="true">{colourName(c)}</span>
+            <span aria-hidden="true">{colourLabel(c)}</span>
           </span>
         ))}
         <span className="u-visually-hidden">
-          {isMine ? 'You play' : 'They play'} {pair.map((c) => colourName(c)).join(' and ')},
+          {isMine ? 'You play' : 'They play'} {pair.map((c) => colourLabel(c)).join(' and ')},
           switching every turn.
         </span>
       </span>
@@ -138,7 +144,7 @@ function DueColour({
   return (
     <span className="o-turn__colours">
       <span className={cx('o-turn__colourChip is-due', colourClass(due))}>
-        <span aria-hidden="true">{colourName(due)}</span>
+        <span aria-hidden="true">{colourLabel(due)}</span>
       </span>
       {other !== undefined ? (
         <span className={cx('o-turn__colourChip is-next', colourClass(other))} aria-hidden="true">
@@ -146,8 +152,8 @@ function DueColour({
         </span>
       ) : null}
       <span className="u-visually-hidden">
-        {isMine ? 'Play your' : 'Playing'} {colourName(due)} ring
-        {other !== undefined ? `. ${colourName(other)} next turn.` : '.'}
+        {isMine ? 'Play your' : 'Playing'} {colourLabel(due)} ring
+        {other !== undefined ? `. ${colourLabel(other)} next turn.` : '.'}
       </span>
     </span>
   );

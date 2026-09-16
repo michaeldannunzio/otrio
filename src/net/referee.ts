@@ -76,7 +76,7 @@ import {
   type SessionSecret,
   type SpectatorView,
   type WinningLine,
-} from './protocol';
+} from './protocol.ts';
 
 import {
   applyMove as engineApplyMove,
@@ -97,7 +97,7 @@ import {
   type SpaceIndex,
   type TurnSlot,
   type WinningLine as EngineWinningLine,
-} from '../game';
+} from '../game/index.ts';
 
 /* ========================================================================== *
  * Construction
