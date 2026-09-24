@@ -942,3 +942,127 @@ the `apple-touch-icon` line Bob granted me in `index.html` cannot be written,
 because it would point at a second file that does not exist. Not inventing a
 logo; it is Bob's call and it is in my report. **Howard: nothing for you to do
 — when artwork lands, the one `<link>` is mine to add, per Bob.**
+
+## 13:05 — Homer — [ACTION: Goku, Howard] the `'local'` contract is committed at `62ad566`
+
+Three files: `protocol.ts`, `transport.ts`, `index.ts`. Nothing else moved.
+`tsc --noEmit -p tsconfig.app.json` clean, executed. Build from this, not from
+this entry — the doc comments at the site carry the reasoning, and they are the
+version that stays true.
+
+**Config.** `src/net/transport.ts`:
+
+    export type LocalSeatNames =
+      | readonly [string, string]
+      | readonly [string, string, string]
+      | readonly [string, string, string, string];
+
+    export interface LocalTransportConfig extends TransportConfig {
+      seatNames: LocalSeatNames;
+    }
+
+    export function toLocalSeatNames(names: readonly string[]): LocalSeatNames | null
+    export const LOCAL_TURN_TIMEOUT_MS = 0;
+
+`seatNames.length` **is** the player count — there is no second field, so there
+is nothing to disagree with. Howard: `toLocalSeatNames` is how a `string[]` from
+your UI becomes one of those; it returns `null` outside 2–4 rather than
+asserting, same idiom as `toSeat`. It does not sanitise — the referee does, as
+it does online.
+
+No `turnTimeoutMs` field, on purpose. `tick()` does not merely expire a turn, it
+plays `legalMoves[0]` for that seat. Online that is right; on one device it
+places a piece out from under a person who is thinking.
+
+**Room code.** `LOCAL_ROOM_CODE_PREFIX = 'LOCAL'`, plus 6 random characters from
+`ROOM_CODE_ALPHABET`. `newLocalRoomCode()` mints, `isLocalRoomCode(code)` tests.
+`createRoom` is the only entry; `joinRoom` rejects `UNSUPPORTED` for every input
+before looking at the code.
+
+Figures, because the suffix looks like decoration and is not:
+
+- `L` and `O` are two of the four characters `ROOM_CODE_ALPHABET` drops, and
+  both other backends mint from that alphabet only — so a local code cannot
+  collide, by construction rather than by probability. `isPlausibleRoomCode`
+  returns `false` for it, so pasting one into an online join box fails locally
+  with `CODE_INVALID`.
+- The referee seeds the engine `hashSeed(code, seq)`, and that seed decides
+  exactly one thing: who moves first. On one device `seq` at `startGame` is
+  deterministic. With a **fixed** code, measured on `'LOCAL'`, 2 players,
+  rotation length 4: `seq=1 -> seed 3740452335 -> firstSlot 3`;
+  `seq=2 -> 2675871910 -> 1`; `seq=7 -> 883939577 -> 0`. Each stable, not
+  sampled — the same seat would open every game. `32^6 = 1_073_741_824`
+  suffixes fixes it.
+- **Never pass a local code through `normalizeRoomCode`.** It folds `L`->`1`
+  and `O`->`0`: `'LOCAL'` comes back `'10CA1'`, still well-formed, and
+  `isLocalRoomCode` then reads `false`.
+
+**Capabilities.** `LOCAL_CAPABILITIES` is exported from `transport.ts`. Import
+it; do not retype it.
+
+    kind: 'local'          spectators: false      reconnect: false
+    reconnectGraceMs: 0    hostMigration: false   impartialReferee: false
+    maxPlayers: MAX_PLAYERS   // the backend ceiling, NOT this game's seat count
+
+`spectators: false` is a consequence, not a policy — the only route into
+`RoomState.spectators` is `joinRoom({asSpectator:true})` and that rejects.
+`reconnectGraceMs: 0` also keeps the referee from arming grace timers against
+players who cannot disconnect. The configured seat count lives in
+`RoomState.maxPlayers` and nowhere else; the transport must not refine
+`capabilities.maxPlayers` per instance.
+
+`impartialReferee: false` is a judgement the source material does not settle,
+and the reasoning is in the doc comment. Short version: `true` would claim an
+authority that is not there, `false` only over-warns.
+
+**Hot seat.** `deriveLocalView` is untouched. Active seat:
+
+    room.game === null                  -> seat 0   (between createRoom and startGame)
+    room.game.phase === 'playing'       -> room.game.turn
+    room.game.phase === 'finished'      -> seat 0   (turn is documented meaningless)
+
+Pass that seat's synthetic `playerId` into `deriveLocalView(room, id)` and
+`role` / `seat` / `isMyTurn` / `isHost` all fall out correct.
+
+**Howard, four things that will bite:**
+
+1. `TransportSnapshot.playerId` and `.name` **change every handoff** on this
+   backend. Its doc said "this client's public id"; I amended it. A memo
+   dependency is fine; a cache key that outlives a turn, or anything persisted,
+   is not.
+2. `setName` **rejects `UNSUPPORTED`** here. It names no seat, so on a rotating
+   identity it would rename whoever is holding the device. Seat names come from
+   `seatNames`; to change one, start a new local game.
+3. `setReady` resolves as a **no-op** (every seat is readied by `createRoom`).
+   The asymmetry with 2 is deliberate: a call with nothing to do resolves, a
+   call that would do the wrong thing fails.
+4. Feature-detect with `isLocalRoomCode(room.code)`, **never** on
+   `capabilities.kind` — `kind` is diagnostics-only and its doc says so. That
+   is the supported way to hide "Show the room code" and the latency line.
+   `SettingsSheet.tsx:131` also renders "Friendly game — one of the phones is
+   running the rules rather than a server" whenever `impartialReferee` is
+   false. True with one phone, but it reads oddly. **That is copy, so it is
+   Arthur's, not mine and not yours to settle alone.**
+
+**Goku, the one that type-checks and is still wrong:** `PeerReferee.create`
+names seat 0 from `host.name`, via `makePlayerView`. Pass `config.identity`
+unchanged and seat 0 gets the device's persisted *online* name while seats
+1..n get their configured ones. Pass
+`{ ...config.identity, name: config.seatNames[0] }`.
+
+Everything else you need is in the SINGLE-DEVICE BACKEND section of
+`transport.ts` — the exact `PeerReferee.create` argument list, the `noteName`
+ordering (`onJoin` reads `pendingNames` only, so a seat that joins before its
+name is noted is called `'Player'`), and the per-method deltas.
+
+**`src/net/index.ts` is mine now and is already exhaustive.** `createTransport`
+is a `switch` with a `never` default; `'local'` throws `TransportError
+('UNSUPPORTED', …)` because `localTransport.ts` does not exist. `readKind`
+accepts `'local'` and `'offline'`. **Goku: message me when your file lands and
+I will wire the lazy import and add `seatNames` to `CreateTransportOptions`** —
+one small commit, mine, so we do not both edit it.
+
+**Not verified by me:** `tsconfig.server.json` was not run (widening a union is
+assignment-safe and `server/src/session.ts` still builds a valid `Capabilities`,
+but I reasoned that rather than executed it). No test executed anything in this
+commit — it is types and prose only.
