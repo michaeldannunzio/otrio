@@ -8,6 +8,10 @@ product fails, on the evidence in `e2e/screenshots/`. Run it before you message 
 everything here passes, your change is probably fine and you can ship it and tell me
 after.
 
+**Building offline mode?** The seven checks still apply unchanged. My positions specific to
+one shared phone — the handoff, the board's orientation, the setup screen, and every string
+that stops being true on one device — are in **"Offline mode"**, below the checks.
+
 > **Those screenshots are stale, and you should know how.** All 21 were taken before the
 > scene was wired, so every one shows an empty board. Checks 1, 2, 3, 5 and 7 are about
 > HUD and copy and stand as written. Anything I have said about the *board* — its size on
@@ -115,6 +119,356 @@ the words should reflect that.
 
 Check the failure screen is actually *visible*: `13-no-webgl-fallback.png` has correct,
 well-written copy that is completely hidden behind the player rail and a toast.
+
+---
+
+## Offline mode — one phone, 2–4 people
+
+UI owner: Howard. Contract: Homer's, `git show 62ad566` (code) and `44adec7` (the shop-log
+entry). Settled by Bob and not re-openable here: pass-and-play only, no AI, **no auto-save**,
+**no lobby in local mode**, `impartialReferee: false`.
+
+Everything below is **written and reasoned, not seen** — no browser, per the standing rule.
+Every `file:line` was read on **2026-09-24**. Where I am inferring behaviour from a file that
+does not exist yet (`localTransport.ts`), I say so at the site.
+
+### The one fact the whole section turns on
+
+`deriveLocalView` (`src/net/transport.ts:1071`) is fed the **active seat's** synthetic id, by
+design — Homer's SINGLE-DEVICE BACKEND notes, and the helper's own doc comment says "who am I"
+is a question with a moving answer here. So on one device:
+
+    isMyTurn   is always true
+    seat       moves 90 degrees' worth every handoff
+    playerId   changes every handoff
+
+None of those is a bug; the three of them are what makes a hot seat work without a second
+referee. But **every UI element that reads them was written for a world where they are
+constants**, and they now each say something that is true of a different mode. That is this
+section. Nearly every fix below is in a *consumer*; any fix that reaches into `src/net/` is
+the wrong fix.
+
+### 1. The handoff moment — a pass gate. Not an interstitial, not the banner alone.
+
+**Broken, and it is the first thing to fix.** `TurnBanner.tsx:73` is
+``isMyTurn ? 'Your turn' : `${current.name}'s turn` ``. With `isMyTurn` always true, the banner
+says **"Your turn" on every turn, for every player, all game, and never shows a name.** The
+most-glanced element in the app stops distinguishing the two states it exists to distinguish,
+in the only mode where the name is the entire point. Check 1 says colour + glyph + name, *all
+three, always*. In local mode the label is the name — `Ada's turn`, never `Your turn` — and the
+same goes for the assertive announcement at `:58-59`.
+
+**Position: a pass gate between turns.** Howard proposed it; I agree, with three amendments. It
+appears when `room.game.turn` changes seat and stays until the incoming player dismisses it.
+
+- **It is not full-screen and it does not cover the 3×3.** Otrio has no hidden information, so
+  an interstitial buys secrecy nobody needs and spends the one thing the incoming player
+  actually needs: time reading a position of up to 27 pieces (`ResultOverlay.tsx:31`) that they
+  last saw three turns ago. **The card goes in the bottom third, over the rail and the size
+  picker** — which are useless to them until they start anyway — and leaves the board clear.
+  Not "centred over a scrim": centred is over the board.
+- **No timer, ever.** The dismissal *is* the handoff. Deliberate contrast with `ColourReveal`,
+  which auto-dismisses at 6000 ms (`ColourReveal.tsx:92`) — right there, wrong here, because a
+  timer that fires while the phone is still crossing the table has protected nothing while
+  looking like it did.
+- **Enforced in `placePiece`, not in pointer-events.** `TextBoard` is always in the DOM and
+  always in the tab order (`GameScreen.tsx:130-134`), so a visual cover is defeated by
+  Tab+Enter. One gate in the action covers the 3D tap, the flat board and the keyboard alike.
+  Howard's call and it is right.
+
+Content, in order: incoming seat's colour as a solid fill + glyph + name; "Pass the phone to
+**Ravi**" as the largest type; in the 2-player game the due-colour chip, because under strict
+alternation "you are purple and green" is not an instruction and "play green" is (check 4 —
+`alternationNote()` is the model); one full-width button in the bottom third, "I'm Ravi — start
+my turn".
+
+**Why a gate at all, when a strong banner is cheaper.** Because `RULES.md` §4.3 is `[OFFICIAL]`
+and absolute — *"Once a piece is placed, it cannot be moved"*, no capture, no undo, a placement
+is final. `engine.ts:411` does export an `undo`, and `engine.ts:397-401` says in as many words
+that it exists for reconciliation, not for players. So on one device the **outgoing** player,
+still holding the phone, can make an irreversible move on behalf of the **incoming** one, and
+there is no recovery path in the rules or in the code. That failure has no online analogue, and
+it is the only reason I will spend a tap a turn.
+
+**What it costs on 360×640.** The gate costs nothing persistent — it is transient and sits where
+the HUD already is. The banner, which stays, is already paid for: `.o-turn` has
+`min-height: var(--hit-min)` (`ui.css:1247`); `--hit-min` is 44 px at `:root` (`tokens.css:94`)
+but **48 px under `@media (pointer: coarse)`** (`layout.css:288-291`), so on a phone ≥48 px,
+plus `--hud-pad: 12px` (`layout.css:49`) = **≥60 px of 640, 9.4 %, spent today** and more with a
+notch. A full-screen interstitial costs **640 of 640 — 100 % — and hides the board** for as long
+as it is up. That is the whole argument against it.
+
+The four questions Howard flagged as mine:
+
+- **Gate before the very first turn? No.** `ColourReveal` already runs at start and names the
+  opener. Two overlays back to back before anyone has touched the board is worse than either.
+  **But `ColourReveal` needs local copy** — 1b.
+- **An outgoing "you're done" beat? No.** One panel, one action.
+- **A "skip the pass screen" setting? No option at all.** House rule 7. If it turns out to be
+  slow, that is data worth having; a setting added pre-emptively is one nobody ever turns off.
+- **Assertive announcement? Yes** — "Pass the phone to Ravi. Ravi plays green." In hot seat the
+  screen-reader user is the person holding the phone throughout. Make sure it **replaces**
+  rather than joins the existing assertive "Your turn." at `TurnBanner.tsx:59`.
+
+### 1b. `ColourReveal` in local mode: stop saying "you", start being the legend
+
+`ColourReveal.tsx:79-80` says "You are Purple" and lists everyone else as *others* (`:109`). On
+one phone that frames a shared board as one person's, and it only lands on the opener because
+that is who `seat` happens to point at when it fires.
+
+In local mode it is a **seating map**: "Ada is purple — top of the board. Bo is red — right." No
+"you", no "others". It is then the legend for a board that never moves (see 2) — still once per
+room, still skippable, still 6 s — and it earns its place more than it does online.
+
+### 1c. The setup screen — reviewed as built (`LocalSetup.tsx`, read 13:20)
+
+Howard landed this while I was writing, so this is a review rather than a prescription.
+**The shape is right and I am not asking for it to change.** Count → names → Start, in one
+card on `HomeScreen` rather than a second screen; `Segmented` for the count, matching
+`maxPlayers` at `HomeScreen.tsx:171-181`; Start last and in the bottom third; no Ready step,
+no room code, no spectator toggle. The header comment's reasoning — that the online lobby's
+"colours are unknowable here" hedge does **not** carry over, because the count is chosen two
+fields up — is the "unknowable, or unknowable *from here*?" question answered correctly, and
+it belongs in the table further up this page.
+
+Three things, in order of how much they matter.
+
+1. **Broken, and cheap: Enter submits from any field** (`LocalSetup.tsx:133-135`). The
+   `onKeyDown` handler is on every `Field`, so at four players a player who types seat 1's
+   name and hits Enter — which `enterKeyHint` at `:128` has just told them means "next" for
+   every field but the last — **starts the game immediately with three default names.** The
+   hint and the behaviour disagree, and the behaviour is the destructive one. Enter should
+   advance on every field but the last and submit only on the last, matching the hint that
+   is already there.
+
+2. **The name fields do not say they are name fields** (`:122-124`). `label` is
+   `seatColourLabel(...)`, so the input's accessible name is "Purple" and its value is also
+   "Purple". A screen-reader user hears *"Purple, edit text, Purple"* and is given no reason
+   to think a person's name goes there — and a sighted user reading a text box labelled with
+   a colour, pre-filled with that colour, has the same problem more quietly. Make the label
+   say the job: **"Purple — who's playing?"**, or at two players **"Purple and green — who's
+   playing?"**. The badge already carries the colour visually; the label should carry the ask.
+
+3. **Default of 2: confirmed, do not overrule.** It is flagged at `:49-56` as an invented
+   default per house rule 8, correctly, and it is the right one — two is the commonest
+   pass-and-play case, and it is the count whose rules differ, so defaulting there puts the
+   alternation sentence on screen instead of leaving it to be discovered.
+
+Two smaller notes:
+
+- **Defaulting a blank seat to its colour name is better than what I was going to ask for**
+  (I had "Player 2"). Naming a seat "Red" means the turn banner, the badge and the board all
+  say the same word, and `sanitizeName` is imported from the referee rather than
+  reimplemented. Keep it.
+- **Once the board is pinned (2), add the side of the screen to each field** — "Purple —
+  top". With a board that never rotates, that is a permanent fact about the screen and this
+  is the earliest useful moment to learn it. Conditional on 2 landing; do not add it while
+  the board still rotates, because it would be false three times in four.
+
+### 2. Board orientation — pin it. And this is Howard's file, not Mario's.
+
+**Decision: the board does not rotate between turns in local mode. Pin it to one constant seat
+for the whole game.**
+
+**First, the correction that changes the shape of the question.** This is not a feature to add;
+it is one that is already on and has to be switched off. `BoardStage.tsx:136` passes
+`seat={useNet((s) => s.seat)}` into the scene, and in local mode `s.seat` *is* the active seat.
+So **as the code stands, the board already rotates 90° on every handoff.** And it is a hard
+snap, not a tween: `Scene.tsx:390` sets `rotation={[0, yaw, 0]}` straight from
+`boardYawForSeat(seat)` (`Board.tsx:410`, `((seat - SOUTH) * PI) / 2`), with no interpolation
+anywhere on the path. **Doing nothing is not the neutral option.**
+
+**And it does not need Mario.** `Scene`'s `seat` is an ordinary prop with a default of `SOUTH`
+(`Scene.tsx:205`, `:418`). The only thing choosing a value for it is `BoardStage.tsx:136`, which
+is `src/ui/**` — Howard's. Pinning is one expression in his own file: no camera work, no
+`CameraRig` change, **no reason to spawn Mario and nothing here for Bob to unblock.** Both ends
+of that seam read on 2026-09-24, which is most of what this role is for.
+
+Three supporting arguments that were offered for the right answer do not survive that read, and
+the right answer deserves the right reasons:
+
+- It is **not a camera swing.** The camera and every light stay fixed and the *board* turns — a
+  documented decision with a real reason (`CameraRig.tsx:29-41`: an orbiting camera gives the
+  four seats four differently-lit boards, and one of them the worst one).
+- It **does not force a re-fit.** `CameraRig` is fitted to `BOARD_BOUNDS.center` / `.halfExtents`
+  (`Scene.tsx:374-375`), constants that do not depend on yaw, and the `framing: 'auto'` crossover
+  is a function of viewport width only. Nothing refits.
+- **`prefers-reduced-motion` would not catch it.** There is no animation to gate — it is an
+  instantaneous jump. Which is arguably the worse of the two for a vestibular-sensitive player,
+  and invisible to the media query.
+
+**Why pinned is right on the merits:**
+
+- Online the rotation models *you walked round the table*: the phone moved relative to the board.
+  On one phone the phone did not move. A board jumping under a stationary viewer is that
+  metaphor inverted.
+- What the rotation buys online — "my arm is nearest me" — is bought here by the physical act of
+  the pass. **The handoff is the seat cue.** It does not need a second one.
+- It costs the thing hot seat is uniquely good at. Everyone watches the same screen all game, so
+  every player builds a reading of the position while waiting. Otrio lines are read by
+  orientation. Rotating the board between the moment a player last looked and the moment they
+  act destroys exactly that reading.
+- Storage arms: `framing: 'auto'` clips **horizontally only** — near and far arms survive whole,
+  the two side arms clip to their inner ~23 % (`CameraRig.tsx`, his measured numbers). With a
+  fixed board the same two arms are always the clipped ones and each player learns their own arm
+  once. With per-turn rotation, *which* arms are clipped rotates through the players.
+
+**Pin to `SOUTH`** — pass the constant, not the live seat. `boardYawForSeat(SOUTH)` is exactly
+`0`, so the pinned board is the *unrotated* board, which is also `Scene`'s own documented
+default. That gives, permanently:
+
+    purple   north   top of the screen
+    red      east    right
+    green    south   bottom (nearest the camera)
+    blue     west    left
+
+which is **pixel-for-pixel the arm diagram `ColourReveal` already draws** (`ColourReveal.tsx:182-187`:
+colour 0 top, 1 right, 2 bottom, 3 left). In the rotating case that diagram is wrong for three
+players in four. Pinned, the reveal panel is a correct legend for the rest of the game — which is
+why 1b matters, and why `SOUTH` rather than seat 0: seat 0 is *north*, so pinning there costs a
+180° rotation away from the identity and hands one seat the privileged view on a device nobody owns.
+
+**Load-bearing by accident, so it gets written down.** The `ColourReveal` arm diagram and the
+pinned board agree only because `boardYawForSeat(SOUTH) === 0`. Nobody designed that agreement; I
+found it by computing both ends. If anyone ever pins to a different seat, that diagram silently
+stops describing the screen and nothing fails.
+
+### 3. The friendly-game badge — replace the section; do not flip the flag
+
+`SettingsSheet.tsx:155-159` renders *"Friendly game — one of the phones is running the rules
+rather than a server"* whenever `capabilities.impartialReferee` is false, which
+`LOCAL_CAPABILITIES` makes true of local mode (`transport.ts:899`). "One of the phones" is false
+when there is one phone.
+
+**`impartialReferee` stays `false`. I am not proposing otherwise and nor should anyone else.**
+Homer's reasoning at `transport.ts:869` is right — `true` claims an authority that is not there,
+`false` only over-warns — and Bob has accepted it. Changing a capability flag that four call
+sites read in order to fix one string is the wrong lever on the wrong file.
+
+**But it should not merely be reworded either, because the section it lives in has nothing left
+in it.** "This room" (`:136-174`) is three things: the latency line, the badge, and "Show the
+room code". Howard has already hidden both the
+latency line and the room code on `isLocalRoomCode` (verified 13:18), which is right and which
+is exactly what leaves the heading standing over the badge alone. Rewording the badge leaves a heading over one sentence about a trust
+relationship with no second party — on one device every player watches every move land, which is
+a stronger guarantee than any badge can be.
+
+**So replace the section.** Gate on `isLocalRoomCode(room.code)` — Homer's supported feature
+detect — never on `capabilities.kind`, which is diagnostics-only and says so.
+
+    heading   This game
+    line 1    Everyone is playing on this phone.
+    line 2    Nothing is saved — closing the app ends the game.
+
+Line 2 is the one that earns its place, and it is there because of the PWA rather than in spite
+of it. Charles's service worker makes the app open offline and behave like something installed
+(`TEAM.md`, 12:55) — and installed apps are expected to resume. This one will not: the user
+declined auto-save (Bob, 2026-09-24) and nothing persists room state (`grep -rn 'localStorage\|sessionStorage'
+src/store src/ui` on 2026-09-24: **no hits**; only `prefsStore` persists, and only preferences).
+A four-player game abandoned to a phone call is gone, and nothing on screen says so.
+
+**Not verified by execution:** "nothing is saved" is read from the *absence* of any storage call,
+not from watching a game die. If `localTransport.ts` lands any persistence, this line becomes
+false and I want to be told.
+
+### 4. Splash colour — change one value, and it is not about themes
+
+A manifest colour cannot be theme-aware: there is no media form for `background_color`, so "make
+the splash theme-aware" is not a thing that can be done, and nobody should spend an hour finding
+that out. Charles established this independently; it is confirmed here so it stops being
+re-derived.
+
+What is left is which population eats the flash, and that is **not** a coin flip. Two independent
+arguments, same direction:
+
+1. **The asymmetry.** A bright flash in a dark room is materially worse than a dark flash in a
+   lit room — dark adaptation takes minutes, light adaptation seconds, and dark-mode users are
+   disproportionately the ones in dark rooms. A light `background_color` puts the bad case on the
+   population already in the dark.
+2. **The icon's own ground is `#0b0e13`.** Against a light splash the icon is a dark tile pasted
+   on near-white and reads as a mistake. Against its own ground the splash reads as one designed
+   surface.
+
+**So: `background_color` → `COLORS.dark.bg` (`#0b0e13`), imported not retyped, same as the icon.
+`theme_color` stays light and matching `index.html`** — it tints browser chrome while the app is
+running, which is a different job with a different neighbour. **The two values differing is
+deliberate and needs a comment at the site saying so**, or the next person "fixes" the mismatch
+and puts the flash back.
+
+Do not build a theme-aware splash. It does not exist.
+
+### 5. Everything else that would lie on one device
+
+Grepped `impartialReferee`, `hostMigration`, `reconnect`, latency/`rtt` and the identity-derived
+flags across `src/ui/**` and `src/store/**` on 2026-09-24. **Broken** = a player is misinformed.
+**Noise** = merely pointless.
+
+| Site | On one phone | |
+|---|---|---|
+| `HomeScreen.tsx:129` | Tagline: *"For two to four people, **one phone each**."* The first sentence anyone reads, false for half the product — and as of 13:17 it sits **six lines above a button that says "Play on this device"** (`:160-162`), so the screen now contradicts itself in one viewport. Suggest: *"…For two to four people, on one phone or on four."* | broken |
+| `TurnBanner.tsx:58,73` | "Your turn", every turn, no name. See 1. | broken |
+| `SettingsSheet.tsx:69-75` | "Your name" field. `setName` rejects `UNSUPPORTED` (Homer), but `prefs.setName` still updates the local store — so the field **appears to work and changes no seat name**. Silent success is the worst failure shape there is. Do not render it; seat names come from `seatNames` and change only by starting a new game. | broken |
+| `SettingsSheet.tsx:149-153` | Latency: *"Connection quality unknown"* — nothing pings, `rttMs` stays `null` (`initialQuality()`, `transport.ts:363`), `gradeQuality(null)` → `'unknown'` (`:355`), and the sentence reads as a link being measured badly rather than as no link at all. **Already fixed** by Howard at 13:18, gated on `isLocalRoomCode`. Verified. | fixed |
+| `SettingsSheet.tsx:169-173` | "Show the room code" — `joinRoom` rejects every input (Homer), and `isPlausibleRoomCode` is `false` for a local code, so the offer cannot work. **Already fixed** at 13:18. Verified. **But `RoomInfoSheet:194-208` still carries *"Anyone with this can join, if there is a free seat."*** — unreachable in local mode now, so harmless, and worth leaving exactly as it is rather than adding a branch for a path nobody can take. | fixed |
+| `SettingsSheet.tsx:222-228`, `:240-244` (`LeaveSheet`) | Leave copy: *"the others keep playing without you"*, *"there is no reconnect window"*, *"your seat is held for a while"*, and for seat 0 *"Someone else will take over as host."* On one phone, leaving ends the game for everyone in the room, physically. Say that. | broken |
+| `ResultOverlay.tsx:86,108` | `isWinner` compares to `selfId`, which at `finished` is seat 0 (Bob). **Seat 0 wins → "You win", no name. Any other seat → "<name> wins", correct.** A one-in-N inconsistency on the most photographed screen in the product. Always name the winner. | broken |
+| `ResultOverlay.tsx:226-232` | Rematch: *"You're in. 1 of 2 ready"*, *"<name> wants a rematch"*. Nobody to wait for; should be a plain "Play again". **Whether seat 0 alone can actually restart a local room is Goku's to answer — ask him, do not assume.** | broken |
+| `PlayerRail.tsx:158-163` | A `ConnectionDot` on every card, all identical and permanently online, in the one component that must fit four cards into 360 px (its own comment budgets ~74 px each). Drop it; give the width to the name. | noise |
+| `LobbyScreen.tsx` (all) | Not reached — Bob's "no lobby in local mode", the UI calls `startGame()` immediately. Make it **structurally** unreachable rather than conditionally silent; every line in it is wrong here. | — |
+| `MoveLog.tsx:74-80` | *"Moves marked ~ were recovered after a reconnection."* Gated on `hasInferred`, which only a snapshot gap sets (`moveLogStore.ts:160`), and there are no gaps. **No change needed** — said out loud so nobody "fixes" it. | none |
+| `useNarration.ts:40-95` | `playerJoined` / `playerLeft` / `playerReconnected` / `hostChanged`. None can fire. **No change needed.** | none |
+| `useNarration.ts:155-159`, `copy.ts:36,46,257-261`, `ConnectionBanner.tsx` | *"Connection lost. Reconnecting."*, *"This device is offline. Reconnect to Wi-Fi or mobile data"*, *"your seat is being held"*. Correct only if `localTransport` never leaves `connected`. **Confirm with Goku.** If it can emit `reconnecting` or `failed`, this needs a local variant — "this device is offline" on an *offline-mode* game is the worst sentence in the file. | ask Goku |
+
+**Nothing in the UI reads `hostMigration` at all** — checked. `LeaveSheet` branches on `isHost`
+instead, and that is where the false sentence actually appears. A capability nobody reads is not
+a safety net.
+
+**One accidental correctness, written down because the next person will delete it.**
+`PlayerRail.tsx:53` derives `isSelf` from `selfId`, which changes every handoff, so the "You"
+chip (`:177`) migrates to whichever card is active. On one device that is *true* — the holder is
+the active player — and it works for a reason nobody chose. Keep it, and keep this note beside
+it. It also means `is-self` and `is-turn` now always land on the same card and two visual
+treatments stack: check that at four players on 360 px before assuming it reads as intended.
+
+### What not to touch
+
+- **`deriveLocalView` and the three moving values.** They are the design, not a leak.
+- **`impartialReferee: false`.** Settled, and for the right reason.
+- **The turn banner's structure** — colour fill, `ColourBadge`, glyph, due-colour chip, clock,
+  `role="status"`, and the live-region split with `Announcer`. Only the *label* is wrong in local
+  mode. It is the best-built thing in the HUD: change one string.
+- **`SizePicker`'s "state the rule at the control"** (`:146-150`, `alternationNote()`). The
+  2-player alternation rule matters *more* in hot seat, where two people share one screen and one
+  of them is about to be told they may not make a winning move.
+- **`TextBoard` always in the DOM and in the tab order.** It is exactly why the pass gate belongs
+  in `placePiece`. Do not make it conditional to simplify the gate.
+- **`framing: 'auto'`.** Enabled on measurement, and the reason the board is playable at 360 px at
+  all. Pinning the seat does not touch it.
+
+### The app icon (reviewed for Charles, 2026-09-24)
+
+Reviewed from the figures and the geometry, **not from a rendered frame** — no browser.
+Geometry as specified: 512 viewBox, margin 24, ring width 56, gaps 24, peg radius 72 → outer ring
+232→176, medium 152→96, peg 72. Internally consistent (96 − 24 = 72).
+
+- **Green/blue adjacency at 1.52 — leave it, no spoke.** At 192 px (scale 0.375) the bands are
+  21 px and the gaps 9 px; everything resolves and hue does the job for two large adjacent
+  fields. At 32 px (scale 1/16) the bands are **3.5 px**, the gaps **1.5 px** and the peg **9 px
+  across** — a 3.5 px arc has no internal structure for a contrast ratio to separate, so 1.52 is
+  not the binding number there; the 1.5 px gap is. The mark degrades to a multicoloured ring,
+  which is distinctive and fine. Also worth noting the *common* deficiency: red/green are the
+  adjacent pair that matters most for deuteranopia and they are the healthier 2.20.
+- **The four-wedge singularity at the centre — leave it.** At 192 px the peg is 54 px and the
+  singularity is a few pixels. At 32 px it is a 9 px disc that reads as a filled dot, which is
+  what a peg *is*. Benign failure mode; do not pick a favourite colour to fix it.
+- **`base`, not `rim` — and this is the important one.** `rim` carries a published contrast
+  guarantee *against the board* (`RIM_BOARD_CEILING_LSTAR = 34`). The icon's ground is `#0b0e13`,
+  which is not the board. Using `rim` there would be spending a guarantee measured against a
+  different surface — **the exact defect documented in "The contrast trap" above**, with the sign
+  flipped. `base` is the identity fill, the icon's job is identity, and the published figures
+  (2.72 / 5.15 / 11.33 / 7.47) are measured against the surface actually drawn. Keep `base`.
+- **Purple at 2.72 is a floor, not a compromise, and the search is closed.** Against pure black it
+  tops out at 2.95; no ground reaches 3.00. Recorded here so nobody re-opens it.
 
 ---
 
