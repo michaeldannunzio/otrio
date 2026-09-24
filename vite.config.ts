@@ -165,14 +165,29 @@ function pwa() {
          landscape at every breakpoint, so locking it would remove a mode that
          works. */
 
-      /* A manifest colour cannot be theme-aware - there is no media query
-         here - so this follows the choice index.html already made for its
-         single static <meta name="theme-color">: the light background. A dark
-         mode user therefore gets a light splash frame before first paint.
-         That is a real, visible cost with no fix at this layer; it is flagged
-         for UX rather than hidden. */
+      /* THESE TWO DIFFER ON PURPOSE. Do not "fix" the mismatch - putting them
+         back in step reintroduces the flash described below.
+
+         Neither can be theme-aware: a web app manifest has no media form for
+         either value, so a theme-aware splash is not buildable at this layer
+         at all. Confirmed, and written up in docs/UX.md so it stops being
+         re-derived.
+
+         They differ because they have different jobs and different neighbours:
+
+         `theme_color` tints browser chrome while the app is RUNNING, next to a
+         page whose own <meta name="theme-color"> index.html already pins to
+         the light background and rewrites at runtime. It follows that choice.
+
+         `background_color` paints the splash screen BEFORE first paint, next
+         to nothing but the app icon - whose ground is COLORS.dark.bg. Arthur's
+         call (2026-09-24), on two arguments: a bright flash in a dark room
+         costs minutes of dark adaptation while a dark flash in a lit room
+         costs seconds, so a light value puts the worse case on exactly the
+         population least able to absorb it; and a #0b0e13 icon on a near-white
+         splash reads as a mistake rather than a designed surface. */
       theme_color: COLORS.light.bg,
-      background_color: COLORS.light.bg,
+      background_color: COLORS.dark.bg,
 
       /* The mark: the three Otrio pieces nested - large annulus, medium
          annulus, small solid PEG (it is not a ring; see docs/RULES.md) - each

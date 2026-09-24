@@ -169,13 +169,6 @@ Set the backend with `VITE_TRANSPORT` in `.env.local` (copy `.env.example`):
 VITE_TRANSPORT=hosted   # or p2p, or local
 ```
 
-**`local` is contract-only as of 2026-09-24.** `LOCAL_CAPABILITIES`,
-`LocalTransportConfig` and the normative "SINGLE-DEVICE BACKEND" section in
-`transport.ts` are published, but `src/net/localTransport.ts` does not exist
-yet, so `createTransport('local')` throws `UNSUPPORTED` on purpose rather than
-silently handing back a networked backend. Delete this paragraph when that file
-lands.
-
 `TransportKind` is designed to be switchable at runtime — from a URL parameter
 or a settings toggle — so they can be compared without a rebuild. Check the
 app's setup code for whether a `?transport=` parameter is wired up, since that
@@ -368,6 +361,15 @@ west blue, matching `PLAYERS[].seat` in `src/styles/tokens.ts`. The four fills
 are that file's canonical identity colours (`#7237b8 #e8501e #a2d733 #1cafd2`,
 identical in both themes); the ground is its `COLORS.dark.bg`. Drawn on the
 user's explicit authorisation, 2026-09-24 — it is not a Spin Master asset.
+
+**Invariant, because an SVG cannot import a TypeScript token and this is
+load-bearing in a way that is invisible from either side:** the ground hex in
+`favicon.svg` must equal `COLORS.dark.bg`. The manifest's `background_color`
+imports that token, and the splash screen is supposed to be seamless with the
+icon drawn on top of it — that seam is the whole reason the splash is dark (see
+`vite.config.ts`). Change the token without re-exporting the icon and you get a
+dark tile on a slightly different dark splash, which reads as a rendering bug
+and is very hard to attribute.
 
 Every PNG is rasterised from that SVG, so the vector and the bitmaps cannot
 drift. To regenerate after editing it:
@@ -609,10 +611,12 @@ little.
 
   `BoardStage.tsx` has since collapsed to a literal
   `lazy(() => import('../../scene/Scene'))`, and the chunk table above is what
-  that bought: three.js bundled, Scene split out on its own. `main.tsx` has not,
-  because the module it probes for does not exist yet — the transport entry
-  point is landing at **`src/net/index.ts`**, and `main.tsx` should import it
-  literally once it does.
+  that bought: three.js bundled, Scene split out on its own. **`main.tsx` has
+  since done the same** — `src/net/index.ts` landed and it now calls
+  `await import('./net')` with a literal specifier (verified 2026-09-24).
+  There is no `@vite-ignore` anywhere in `src/` any more; the only remaining
+  mentions are the comments in `main.tsx`, `net/index.ts` and `BoardStage.tsx`
+  warning the next person off it.
 
   The general rule, since this cost a while to diagnose: a specifier Vite cannot
   read statically is a dependency Vite will not ship.
