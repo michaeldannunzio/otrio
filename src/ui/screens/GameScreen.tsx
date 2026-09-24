@@ -13,6 +13,7 @@ import { TextBoard } from '../hud/TextBoard';
 import { MoveLog } from '../hud/MoveLog';
 import { ResultOverlay } from './ResultOverlay';
 import { ColourReveal } from './ColourReveal';
+import { PassDevice } from './PassDevice';
 
 /**
  * The playing screen, built on the shell in `src/styles/layout.css`.
@@ -134,6 +135,14 @@ export function GameScreen() {
       <TextBoard />
 
       <ColourReveal />
+
+      {/*
+        The handoff, on one device. Rendered outside `.app-shell` so it can sit
+        over the rail and the size picker without changing the height
+        `useHudInsets` measures -- slotting it into `.app-hud-bottom` would
+        refit the board on every single pass. Returns null in every online game.
+      */}
+      <PassDevice />
 
       <ResultOverlay />
     </div>

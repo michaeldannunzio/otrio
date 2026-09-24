@@ -64,6 +64,46 @@ export function routeOf(snapshot: TransportSnapshot): Route {
 }
 
 /* -------------------------------------------------------------------------- *
+ * The hot seat
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The seat the device must be handed to before play can continue, or `null`
+ * when nobody is waiting.
+ *
+ * A derivation, not a flag. `deviceHeldBy` records how far the people in the
+ * room have caught up with the referee; `game.turn` is the truth. Pending-ness
+ * is the gap between them, so it cannot be left stuck raised by a component
+ * that unmounted mid-handoff, and it needs no event to stay correct.
+ *
+ * WHY THE GATE EXISTS AT ALL, since it costs a tap a turn
+ * ------------------------------------------------------
+ * `docs/RULES.md` 4.3 is `[OFFICIAL]` and absolute: once a piece is placed it
+ * cannot be moved. No capture, no undo. (`engine.ts` does export an `undo`, and
+ * says in as many words that it is for reconciliation and not for players.) So
+ * on one device the *outgoing* player, still holding the phone, is one tap away
+ * from making an irreversible move on behalf of the *incoming* one, and neither
+ * the rules nor the code has a recovery path. That failure has no online
+ * analogue, and it is the whole justification. (Arthur, docs/UX.md.)
+ *
+ * `null` for `deviceHeldBy` means "no turn has settled yet" and produces no
+ * gate: the opening turn is not a handoff, and `ColourReveal` already names the
+ * opener. A rematch *does* gate, because the reveal plays only once per room
+ * and the gate is then the only thing that says who opens the new game.
+ */
+export function handoffPendingFor(
+  room: RoomState | null,
+  deviceHeldBy: Seat | null,
+): Seat | null {
+  // `isLocalRoomCode(room.code)`, never `capabilities.kind` (Homer).
+  if (!room || !isLocalRoomCode(room.code)) return null;
+  const game = room.game;
+  if (!game || game.phase !== 'playing') return null;
+  if (deviceHeldBy === null || deviceHeldBy === game.turn) return null;
+  return game.turn;
+}
+
+/* -------------------------------------------------------------------------- *
  * People
  * -------------------------------------------------------------------------- */
 

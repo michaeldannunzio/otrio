@@ -17,7 +17,7 @@
 
 import { create } from 'zustand';
 
-import type { PieceSize, PlayerColor } from '../net/protocol';
+import type { PieceSize, PlayerColor, Seat } from '../net/protocol';
 
 /* -------------------------------------------------------------------------- *
  * Announcements
@@ -140,6 +140,20 @@ export interface UiState {
   assertive: Announcement | null;
   toasts: Toast[];
 
+  /**
+   * Which seat is currently holding this device, in a game being passed round
+   * one phone. `null` outside such a game, and before its first turn settles.
+   *
+   * This is the *only* piece of state the handoff needs, and it is deliberately
+   * "who has it" rather than "is a handoff pending". Pending-ness is then a
+   * derivation -- `handoffPendingFor` in selectors.ts compares this against the
+   * seat to move -- so there is no flag that can be left raised by a component
+   * that unmounted, no event that can be missed, and nothing to reconcile after
+   * a snapshot arrives out of order. The truth is the referee's `game.turn`;
+   * this records only how far the people in the room have caught up with it.
+   */
+  deviceHeldBy: Seat | null;
+
   /** Set when the win overlay has been dismissed so the board can be studied. */
   resultDismissed: boolean;
   /**
@@ -170,6 +184,8 @@ export interface UiStore extends UiState {
 
   setResultDismissed(dismissed: boolean): void;
   setRevealShownFor(code: string | null): void;
+  /** Record that a seat now physically holds the device. */
+  setDeviceHeldBy(seat: Seat | null): void;
   /** Back to a clean slate when leaving a room. */
   resetForNewRoom(): void;
 }
@@ -188,6 +204,7 @@ const INITIAL: UiState = {
   polite: null,
   assertive: null,
   toasts: [],
+  deviceHeldBy: null,
   resultDismissed: false,
   revealShownFor: null,
 };
@@ -262,6 +279,7 @@ export const useUi = create<UiStore>()((setState, getState) => ({
 
   setResultDismissed: (resultDismissed) => setState({ resultDismissed }),
   setRevealShownFor: (revealShownFor) => setState({ revealShownFor }),
+  setDeviceHeldBy: (deviceHeldBy) => setState({ deviceHeldBy }),
 
   resetForNewRoom: () => {
     for (const timer of toastTimers.values()) clearTimeout(timer);

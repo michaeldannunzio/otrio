@@ -126,12 +126,36 @@ export function LocalSetup() {
                 maxLength={MAX_NAME_LENGTH}
                 autoComplete="off"
                 enterKeyHint={i === seats.length - 1 ? 'go' : 'next'}
+                data-seat-index={i}
                 onChange={(e) => {
                   const next = e.currentTarget.value;
                   setNames((prev) => prev.map((n, j) => (j === i ? next : n)));
                 }}
+                /*
+                 * Enter advances, and only submits from the last field.
+                 *
+                 * This used to submit from any field, which contradicted the
+                 * `enterKeyHint` directly above it -- the phone keyboard shows
+                 * "next" on every field but the last, and the behaviour was
+                 * "go" on all of them. At four players, typing seat 1's name
+                 * and pressing the key the keyboard labels "next" started the
+                 * game immediately with three default names, and a placement
+                 * is final. The hint and the behaviour disagreed and the
+                 * behaviour was the destructive one. (Arthur found it.)
+                 */
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !busy) void onStart();
+                  if (e.key !== 'Enter' || busy) return;
+                  e.preventDefault();
+                  if (i === seats.length - 1) {
+                    void onStart();
+                    return;
+                  }
+                  const form = e.currentTarget.closest('.o-local__seats');
+                  const next = form?.querySelector<HTMLInputElement>(
+                    `input[data-seat-index="${i + 1}"]`,
+                  );
+                  next?.focus();
+                  next?.select();
                 }}
               />
             </div>
@@ -174,10 +198,42 @@ function defaultNameForSeat(seat: Seat): string {
   return colourLabel(firstColourOfSeat(seat));
 }
 
-/** "Purple", or "Purple and green" for a seat that runs two colours. */
+/**
+ * The field's label: which colours this seat plays, where they sit, and what to
+ * type. All three, because the label is the input's accessible name.
+ *
+ * It used to be the bare colour -- so a screen-reader user heard "Purple, edit
+ * text, Purple" and was given no reason to think a person's name went there,
+ * and a sighted user read a text box labelled with a colour and pre-filled with
+ * that colour. The badge beside it already carries the colour; the label
+ * carries the ask. (Arthur.)
+ *
+ * The side of the screen is a permanent fact only because the board is pinned
+ * in local mode (`BoardStage`), which is what makes it worth learning here.
+ * `SEAT_SIDES` is indexed by seat and that mapping holds for the same reason --
+ * see the note on the constant.
+ */
 function seatColourLabel(seat: Seat, twoColours: boolean): string {
   const first = colourLabel(firstColourOfSeat(seat));
-  if (!twoColours) return first;
-  const second = secondColourIfTwoPlay(seat);
-  return second === null ? first : `${first} and ${colourLabel(second).toLowerCase()}`;
+  const second = twoColours ? secondColourIfTwoPlay(seat) : null;
+  const colours =
+    second === null ? first : `${first} and ${colourLabel(second).toLowerCase()}`;
+  return `${colours} — ${SEAT_SIDES[seat]} — who's playing?`;
 }
+
+/**
+ * Where each seat's arm sits on screen, in words.
+ *
+ * True only because the board is pinned to SOUTH on one device, which makes
+ * `boardYawForSeat` exactly 0 and leaves purple north/top, red east/right,
+ * green south/bottom, blue west/left. **If the pin in `BoardStage.tsx` ever
+ * moves, these four words are silently wrong and nothing fails.** Same
+ * accidental agreement that the `ColourReveal` arm diagram depends on, written
+ * down in both places rather than in neither.
+ */
+const SEAT_SIDES: Record<Seat, string> = {
+  0: 'top',
+  1: 'right',
+  2: 'bottom',
+  3: 'left',
+};

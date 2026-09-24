@@ -17,7 +17,7 @@ import { useUi } from './uiStore';
 import { usePrefs } from './prefsStore';
 import { interaction } from './interactionStore';
 import { moveLog } from './moveLogStore';
-import { defaultSize } from './selectors';
+import { defaultSize, handoffPendingFor } from './selectors';
 import { coloursOfSeat, reserveOfColour, turnColours } from './colours';
 
 import type {
@@ -209,6 +209,41 @@ export function requestRematch(accept: boolean): Promise<CommandResult<void>> {
 }
 
 /* -------------------------------------------------------------------------- *
+ * The hot seat
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The incoming player confirms they are holding the device.
+ *
+ * Takes no argument: the seat is whoever the referee says is to move, read at
+ * the moment of the tap. Passing one in from the component that drew the panel
+ * would let a stale render confirm the wrong seat.
+ */
+export function takeDevice(): void {
+  const room = getTransport()?.getSnapshot().room ?? null;
+  const waiting = handoffPendingFor(room, useUi.getState().deviceHeldBy);
+  if (waiting === null) return;
+  useUi.getState().setDeviceHeldBy(waiting);
+  // The incoming player holds a different tray, so the armed size may be one
+  // they do not have. Same reason `autoArmSize` runs on a turn change.
+  autoArmSize();
+}
+
+/**
+ * Adopt the opening turn without a gate.
+ *
+ * The first turn of a game is not a handoff -- nobody has passed anything yet
+ * -- so the device is recorded as held by the opener rather than gated. Called
+ * from the pass panel, which is mounted for exactly as long as there is a game.
+ */
+export function settleOpeningSeat(): void {
+  const game = getTransport()?.getSnapshot().room?.game ?? null;
+  if (!game || game.phase !== 'playing') return;
+  if (useUi.getState().deviceHeldBy !== null) return;
+  useUi.getState().setDeviceHeldBy(game.turn);
+}
+
+/* -------------------------------------------------------------------------- *
  * Playing
  * -------------------------------------------------------------------------- */
 
@@ -299,6 +334,30 @@ export async function placePiece(
     return {
       ok: false,
       error: { code: 'NOT_YOUR_TURN', message: 'It is not your turn.', retryable: false },
+    };
+  }
+  /*
+   * The pass gate, on one device.
+   *
+   * Here rather than in the panel's pointer-events, because `TextBoard` is
+   * always in the DOM and always in the tab order -- a visual cover is defeated
+   * by Tab, Enter. One gate in the action covers the 3D tap, the flat board and
+   * the keyboard alike, which is also why `TextBoard` must not be made
+   * conditional to "simplify" this.
+   *
+   * Note this sits *below* the `isMyTurn` check and cannot be folded into it:
+   * `isMyTurn` is true for whoever holds the device in hot seat, by design, so
+   * it is exactly the check that cannot tell these two states apart.
+   */
+  const waitingFor = handoffPendingFor(snap.room, useUi.getState().deviceHeldBy);
+  if (waitingFor !== null) {
+    return {
+      ok: false,
+      error: {
+        code: 'NOT_YOUR_TURN',
+        message: 'The device has not been handed over yet.',
+        retryable: false,
+      },
     };
   }
   if (snap.pendingMove) {

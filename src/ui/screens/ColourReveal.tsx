@@ -9,6 +9,7 @@ import {
   useNet,
   useUi,
 } from '../../store';
+import { isLocalRoomCode } from '../../net/protocol';
 import type { PlayerColor } from '../../net/protocol';
 import { joinNames } from '../lib/copy';
 import { Button } from '../components/primitives';
@@ -51,6 +52,19 @@ export function ColourReveal() {
 
   const code = room?.code ?? null;
   const playing = room?.phase === 'playing';
+  /*
+   * On one device this stops being "who you are" and becomes the seating map.
+   *
+   * "You are Purple", with everyone else listed as *others*, frames a shared
+   * board as one person's -- and it only lands on the opener at all, because
+   * that is whoever `seat` happens to point at when it fires. Every person it
+   * names is in the room looking at the same screen.
+   *
+   * It also earns its place more here than online, because the board is pinned
+   * (see BoardStage) so the arm diagram below is a legend for the whole game
+   * rather than for one turn.
+   */
+  const onOneDevice = code !== null && isLocalRoomCode(code);
   const mine = seat === null ? [] : coloursOfSeat(room, seat);
   const first = dueColour(room);
 
@@ -76,15 +90,23 @@ export function ColourReveal() {
     const names = playersBySeat(room)
       .filter((p) => p.seat !== seat)
       .map((p) => `${p.name} is ${p.colors.map((c) => colourLabel(c)).join(' and ')}`);
-    const yours = hasColours
-      ? `You are ${mine.map((c) => colourLabel(c)).join(' and ')}.`
-      : 'You are watching.';
     const opener = first !== null ? ` ${colourLabel(first)} goes first.` : '';
-    ui.announce(`${yours} ${joinNames(names)}.${opener}`, 'assertive');
+    if (onOneDevice) {
+      // A seating map: every player named, nobody addressed as "you".
+      const everyone = playersBySeat(room).map(
+        (p) => `${p.name} is ${p.colors.map((c) => colourLabel(c)).join(' and ')}`,
+      );
+      ui.announce(`${joinNames(everyone)}.${opener}`, 'assertive');
+    } else {
+      const yours = hasColours
+        ? `You are ${mine.map((c) => colourLabel(c)).join(' and ')}.`
+        : 'You are watching.';
+      ui.announce(`${yours} ${joinNames(names)}.${opener}`, 'assertive');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally
     // scalar-only: see the comment above. Re-running on every new array or room
     // object identity is what broke the dismiss timer.
-  }, [playing, code, shownFor, setShownFor, hasColours, role]);
+  }, [playing, code, shownFor, setShownFor, hasColours, role, onOneDevice]);
 
   // Auto-dismiss, owned separately so nothing else can cancel it.
   useEffect(() => {
@@ -106,7 +128,10 @@ export function ColourReveal() {
 
   if (!visible || !room) return null;
 
-  const others = playersBySeat(room).filter((p) => p.seat !== seat);
+  // On one device nobody is an "other": everyone listed is in the room.
+  const others = onOneDevice
+    ? playersBySeat(room)
+    : playersBySeat(room).filter((p) => p.seat !== seat);
   const youFirst = first !== null && mine.includes(first);
 
   return (
@@ -118,9 +143,20 @@ export function ColourReveal() {
       onPointerDown={() => setVisible(false)}
     >
       <div className="o-reveal__panel">
-        <ArmsDiagram mine={mine} first={first} />
+        {/*
+          No arm is marked "mine" on one device. `mine` is the *active* seat's
+          colours, so marking it would put the YOU glyph on whichever player
+          happens to be opening -- claiming a shared board for one of the four
+          people looking at it. Passing an empty set leaves the diagram as what
+          it should be here: a legend for a board that never rotates.
+        */}
+        <ArmsDiagram mine={onOneDevice ? [] : mine} first={first} />
 
-        {mine.length > 0 ? (
+        {onOneDevice ? (
+          <p className="o-reveal__you">
+            <span className="o-reveal__youLabel">Who is who</span>
+          </p>
+        ) : mine.length > 0 ? (
           <p className={cx('o-reveal__you', colourClass(mine[0]))}>
             <span className="o-reveal__youLabel">You are</span>
             <span className="o-reveal__colours">
@@ -158,7 +194,7 @@ export function ColourReveal() {
 
         {first !== null ? (
           <p className={cx('o-reveal__first', colourClass(first))}>
-            {youFirst ? 'You go first' : `${colourLabel(first)} goes first`}
+            {youFirst && !onOneDevice ? 'You go first' : `${colourLabel(first)} goes first`}
           </p>
         ) : null}
 

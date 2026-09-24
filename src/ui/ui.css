@@ -790,6 +790,94 @@
   min-width: 0;
 }
 
+/* ──────────────────────── the handoff (pass gate) ─────────────────────── */
+
+/*
+ * Anchored to the bottom edge, never centred. Centred is over the board, and
+ * the incoming player's scarcest resource is time to read a position of up to
+ * 27 pieces they last saw three turns ago. So this covers the player rail and
+ * the size picker -- useless to them until they start -- and leaves the 3x3
+ * clear. (docs/UX.md, "Offline mode" 1.)
+ *
+ * `position: fixed` rather than slotting into `.app-hud-bottom`: that element
+ * belongs to layout.css, and replacing its contents would change the height
+ * `useHudInsets` measures, refitting the board on every single handoff.
+ */
+.o-pass {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  pointer-events: auto;
+}
+
+.o-pass__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 28rem;
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  /*
+   * An opaque surface, not a tint. UX check 2: any HUD text over the canvas
+   * gets a surface behind it or it does not go there -- and this text sits over
+   * an arbitrary WebGL background by definition. `--surface-1` and
+   * `--shadow-5` to match `.o-reveal__panel`, which is the other panel that
+   * floats over the board.
+   */
+  background-color: var(--surface-1);
+  border-top: 4px solid var(--player-current);
+  box-shadow: var(--shadow-5);
+}
+
+.o-pass__who {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.o-pass__name {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--player-current-ui);
+}
+
+/* The largest type in the panel: it is the instruction, not the decoration. */
+.o-pass__instruction {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+
+.o-pass__due {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* Same pair as `.o-turn__colourChip`: the fill and its own text colour. */
+.o-pass__dueChip {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background-color: var(--player-current);
+  color: var(--player-current-on);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
 /*
  * A real disclosure. The old markup was a bare `<details>` with no chevron and
  * no affordance, so "How you win" read as a heading whose content had failed to

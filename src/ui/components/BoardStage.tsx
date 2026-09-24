@@ -1,13 +1,14 @@
 import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { PIECE_SIZES } from '../../net/protocol';
+import { PIECE_SIZES, isLocalRoomCode } from '../../net/protocol';
 import type { CellIndex, GameSnapshot, PieceSize, PlayerColor } from '../../net/protocol';
 import {
   ARM_ANGLES,
   ARM_RADIUS,
   BOARD_TOP_Y,
   PLAY_SPACES,
+  SOUTH,
   SPACE_PITCH,
   STORAGE_SPACES,
   slotTransform,
@@ -99,6 +100,7 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
 
   const seat = useNet((s) => s.seat);
   const isMyTurn = useNet((s) => s.isMyTurn);
+  const onOneDevice = useNet((s) => (s.room === null ? false : isLocalRoomCode(s.room.code)));
   // The resolved mode, mirrored from the theme owner. Not recomputed from the
   // preference plus a media query: that is a second implementation of
   // `system`, and the two can disagree for a frame after an OS flip.
@@ -128,12 +130,44 @@ export function BoardStage({ insets }: { insets?: Partial<Insets> }) {
     <SceneBoundary>
       <Suspense fallback={<BoardLoading />}>
         <LazyScene
-          // The board turns so this seat's arm is nearest the camera. This one
-          // really is a SEAT, not a colour -- it is about where the local player
-          // is sitting, not what they play. Narrowed inline because the protocol
-          // types a seat as a bare `number` and the scene wants `0 | 1 | 2 | 3`;
-          // spectators (null) get the north view.
-          seat={seat === 0 || seat === 1 || seat === 2 || seat === 3 ? seat : 0}
+          /*
+           * The board turns so this seat's arm is nearest the camera. This one
+           * really is a SEAT, not a colour -- it is about where the local player
+           * is sitting, not what they play. Narrowed inline because the protocol
+           * types a seat as a bare `number` and the scene wants `0 | 1 | 2 | 3`;
+           * spectators (null) get the north view.
+           *
+           * ON ONE DEVICE THE BOARD IS PINNED AND DOES NOT TURN.
+           * ----------------------------------------------------
+           * Arthur's decision (docs/UX.md, "Offline mode" 2). Note this is a
+           * rotation being switched *off*, not one being added: `s.seat` is the
+           * *active* seat in hot seat, so left alone this line snaps the board
+           * 90 degrees on every handoff, instantly -- `Scene.tsx` applies
+           * `rotation={[0, yaw, 0]}` straight from `boardYawForSeat` with no
+           * interpolation, so `prefers-reduced-motion` would not catch it
+           * either. Doing nothing here was never the neutral option.
+           *
+           * Online the rotation models "you walked round the table" -- the
+           * phone moved relative to the board. Here the phone did not move, and
+           * the pass itself already tells you whose turn it is. What it would
+           * cost is the thing hot seat is uniquely good at: everyone watches
+           * the same screen all game and builds a reading of the position while
+           * waiting, and Otrio lines are read by orientation.
+           *
+           * `SOUTH`, not seat 0: `boardYawForSeat(SOUTH)` is exactly 0 (SOUTH
+           * is 2), so this is the unrotated board and also `Scene`'s own
+           * documented default, and no seat gets a privileged view of a device
+           * nobody owns. Verified at both ends 2026-09-24.
+           *
+           * LOAD-BEARING BY ACCIDENT, so it is written down: the arm diagram in
+           * `ColourReveal.tsx` draws colour 0 top, 1 right, 2 bottom, 3 left,
+           * which describes the screen *only* because this pins to SOUTH.
+           * Nobody designed that agreement. Pin anywhere else and that diagram
+           * silently stops being true and nothing fails.
+           */
+          seat={
+            onOneDevice ? SOUTH : seat === 0 || seat === 1 || seat === 2 || seat === 3 ? seat : 0
+          }
           theme={theme}
           // What the HUD is covering, so the board is fitted into what is left
           // rather than centred behind the size picker. Measured in GameScreen.

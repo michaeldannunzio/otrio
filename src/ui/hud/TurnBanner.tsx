@@ -9,6 +9,7 @@ import {
   ui,
   useNet,
 } from '../../store';
+import { isLocalRoomCode } from '../../net/protocol';
 import type { PlayerColor } from '../../net/protocol';
 import { formatCountdown } from '../lib/copy';
 import { ColourBadge, colourClass, colourLabel, cx } from '../components/Ring';
@@ -38,6 +39,19 @@ export function TurnBanner() {
   const current = playerToMove(room);
   const finished = room?.phase === 'finished';
   const paused = room?.phase === 'paused';
+  /*
+   * On one device `isMyTurn` is true for whoever is holding the phone -- by
+   * design, it is what makes a hot seat work. But it is exactly the value this
+   * banner was built on, so left alone the label reads "Your turn" on every
+   * turn for every player, all game, and never shows a name: the most-glanced
+   * element in the app, no longer distinguishing the two states it exists to
+   * distinguish, in the only mode where the name is the whole point.
+   *
+   * Only the label changes. The structure -- colour fill, badge, glyph,
+   * due-colour chip, clock, the live-region split with `Announcer` -- is
+   * untouched. (Arthur, docs/UX.md "Offline mode" 1.)
+   */
+  const onOneDevice = room !== null && isLocalRoomCode(room.code);
 
   // Announce turn changes. Assertive for your own turn -- interrupting is
   // justified exactly here -- polite for everyone else's, so the room does not
@@ -49,6 +63,13 @@ export function TurnBanner() {
   const lastAnnounced = useRef<string | null>(null);
   useEffect(() => {
     if (!current || finished || paused) return;
+    /*
+     * On one device `PassDevice` owns the spoken turn change, assertively, and
+     * `ColourReveal` owns the opening. Announcing here as well would put "Your
+     * turn." on top of "Pass the phone to Ada." -- two assertive messages, one
+     * of them addressed to the wrong person. One owner per moment.
+     */
+    if (onOneDevice) return;
     const key = `${current.playerId}:${room?.game?.moveCount ?? 0}:${due ?? 'x'}`;
     if (lastAnnounced.current === key) return;
     lastAnnounced.current = key;
@@ -60,7 +81,7 @@ export function TurnBanner() {
     } else if (role !== 'none') {
       ui.announce(`${current.name}'s turn.${colourPart}`);
     }
-  }, [current, finished, paused, isMyTurn, role, room?.game?.moveCount, due, alternates]);
+  }, [current, finished, paused, isMyTurn, role, room?.game?.moveCount, due, alternates, onOneDevice]);
 
   if (!room || !current) {
     return (
@@ -70,13 +91,13 @@ export function TurnBanner() {
     );
   }
 
-  const label = isMyTurn ? 'Your turn' : `${current.name}'s turn`;
+  const label = isMyTurn && !onOneDevice ? 'Your turn' : `${current.name}'s turn`;
 
   return (
     <div
       className={cx(
         'o-turn',
-        isMyTurn && 'is-mine',
+        isMyTurn && !onOneDevice && 'is-mine',
         paused && 'is-paused',
         pendingMove && 'is-pending',
         colourClass(due ?? pair[0] ?? null),
@@ -91,7 +112,13 @@ export function TurnBanner() {
         {label}
         {pendingMove ? <span className="o-turn__pending"> — placing…</span> : null}
       </span>
-      {alternates ? <DueColour due={due} pair={pair} isMine={isMyTurn} /> : null}
+      {/*
+        `isMine` decides between "Play your green ring" and "Playing green" in
+        the hidden text. Same reason as the label above: on one device
+        `isMyTurn` is true for whoever is holding the phone, so an unqualified
+        "your" addresses the wrong person on every turn but their own.
+      */}
+      {alternates ? <DueColour due={due} pair={pair} isMine={isMyTurn && !onOneDevice} /> : null}
       {room.turnDeadline !== null ? <TurnClock deadline={room.turnDeadline} /> : null}
     </div>
   );

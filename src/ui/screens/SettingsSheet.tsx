@@ -66,13 +66,25 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
   return (
     <Sheet open={open} onClose={onClose} title="Game menu">
       <div className="o-settings">
-        <Field
-          label="Your name"
-          value={prefs.name}
-          maxLength={MAX_NAME_LENGTH}
-          onChange={(e) => prefs.setName(e.currentTarget.value)}
-          onBlur={(e) => void setName(e.currentTarget.value)}
-        />
+        {/*
+          Not rendered on one device, because it would appear to work and
+          change nothing. `transport.setName` rejects `UNSUPPORTED` there (it
+          names no seat, so against a rotating identity it would rename
+          whoever happens to be holding the phone), but `prefs.setName` still
+          updates the local store -- so the field accepts the keystrokes, keeps
+          the new value, and no seat name anywhere changes. Silent success is
+          the worst failure shape there is. Seat names come from `seatNames`
+          and change only by starting a new game.
+        */}
+        {!onOneDevice ? (
+          <Field
+            label="Your name"
+            value={prefs.name}
+            maxLength={MAX_NAME_LENGTH}
+            onChange={(e) => prefs.setName(e.currentTarget.value)}
+            onBlur={(e) => void setName(e.currentTarget.value)}
+          />
+        ) : null}
 
         <Segmented
           legend="Appearance"
@@ -133,50 +145,79 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
           </Button>
         ) : null}
 
-        {room ? (
+        {/*
+          THE WHOLE SECTION IS REPLACED ON ONE DEVICE, NOT PATCHED LINE BY LINE.
+          ---------------------------------------------------------------------
+          Arthur's call (docs/UX.md "Offline mode" 3). Of the three things "This
+          room" contains, two cannot be true here:
+
+            - the latency line reads "Connection quality unknown", because
+              nothing pings and `quality` keeps its initial value for the
+              transport's whole life (Goku confirmed, 2026-09-24: `rttMs` stays
+              `null`, so `gradeQuality(null)` is `'unknown'` forever). It claims
+              a link being measured badly rather than no link at all.
+            - "Show the room code" offers something that cannot work: `joinRoom`
+              rejects every input, and a `LOCAL`-prefixed code fails
+              `isPlausibleRoomCode`, so typing it into another phone gives
+              `CODE_INVALID`. The code exists only so the referee's
+              `hashSeed(code, seq)` varies who opens the game.
+
+          That leaves the friendly-game badge alone under a heading, describing
+          a trust relationship with no second party. `impartialReferee` stays
+          `false` -- Homer's reasoning is right and it is not a lever for fixing
+          a string -- but on one phone every player watches every move land,
+          which is a stronger guarantee than the badge can offer.
+
+          "Nothing is saved" is the line that earns its place, and it is here
+          because of the PWA rather than in spite of it: the service worker
+          makes this open offline and feel installed, and installed apps are
+          expected to resume. This one will not -- the user declined auto-save
+          and nothing persists room state -- and until now nothing on screen
+          said so.
+        */}
+        {room && onOneDevice ? (
+          <div className="o-settings__section">
+            <h3 className="o-settings__heading">This game</h3>
+            <p className="o-settings__line">Everyone is playing on this phone.</p>
+            <p className="o-settings__line">
+              Nothing is saved — closing the app ends the game.
+            </p>
+          </div>
+        ) : null}
+
+        {room && !onOneDevice ? (
           <div className="o-settings__section">
             <h3 className="o-settings__heading">This room</h3>
-
-            {/*
-              Latency. Hidden on one device because the sentence would be a
-              lie about a link that does not exist: with no ping there is no
-              `rttMs`, `gradeQuality(null)` is `'unknown'`, and
-              `describeQuality` renders that as "Connection quality unknown"
-              -- which reads as a connection being measured badly rather than
-              as no connection at all. (Both functions read 2026-09-24; this
-              is what they return, not what I expect them to.)
-            */}
-            {!onOneDevice ? (
-              <p className="o-settings__line">
-                {describeQuality(gradeQuality(quality.rttMs), quality.rttMs)}
-              </p>
-            ) : null}
-
+            <p className="o-settings__line">
+              {describeQuality(gradeQuality(quality.rttMs), quality.rttMs)}
+            </p>
             {capabilities && !capabilities.impartialReferee ? (
               <p className="o-settings__line">
                 Friendly game — one of the phones is running the rules rather than a server.
               </p>
             ) : null}
-
-            {/*
-              Sharing the code. A local code is a sentinel, not an invitation:
-              `newLocalRoomCode()` mints `LOCAL` + 6 characters purely so the
-              referee's `hashSeed(code, seq)` varies who opens the game, and
-              `isPlausibleRoomCode` returns false for it, so a player who typed
-              one into another phone would get `CODE_INVALID`. Offering it to
-              share is offering something that cannot work.
-            */}
-            {!onOneDevice ? (
-              <Button block onClick={() => openSheet('room-info')}>
-                Show the room code
-              </Button>
-            ) : null}
+            <Button block onClick={() => openSheet('room-info')}>
+              Show the room code
+            </Button>
           </div>
         ) : null}
 
-        {room ? (
+        {/*
+          The way out. On one device, once the game is finished this button is
+          not an exit -- it is the only route to a game with a different player
+          count or different names, because `ResultOverlay`'s "Play again" is a
+          rematch: same seats, same names, same count. So at that point it is a
+          primary, entirely safe action, and it should not wear the colour
+          reserved for irreversible ones or cost a confirmation for a game that
+          is already over. (Arthur, docs/UX.md "Offline mode" 6.)
+        */}
+        {room && onOneDevice && finished ? (
+          <Button block onClick={() => void leaveRoom()}>
+            Start a different game
+          </Button>
+        ) : room ? (
           <Button variant="danger" block onClick={() => openSheet('leave-confirm')}>
-            {inGame && !finished ? 'Leave the game' : 'Leave room'}
+            {onOneDevice ? 'End the game' : inGame && !finished ? 'Leave the game' : 'Leave room'}
           </Button>
         ) : null}
       </div>
@@ -213,24 +254,35 @@ function LeaveSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const room = useNet((s) => s.room);
   const isHost = useNet((s) => s.isHost);
   const inPlay = room?.phase === 'playing' || room?.phase === 'paused';
+  const onOneDevice = room !== null && isLocalRoomCode(room.code);
 
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title={inPlay ? 'Leave the game?' : 'Leave the room?'}
+      title={onOneDevice ? 'End the game?' : inPlay ? 'Leave the game?' : 'Leave the room?'}
       compact
+      /*
+       * Every sentence in the online version is about a room other people are
+       * still in: rings left as blockers, a seat given up, a reconnect window,
+       * a host handing over. None of that exists when the other players are in
+       * the same physical room -- leaving ends the game for all of them at
+       * once. Say the effect, not the mechanism: "reload" is an implementation
+       * detail no player should have to hold. (Arthur, docs/UX.md 6.)
+       */
       description={
-        inPlay
-          ? 'Your rings stay on the board as blockers and the others keep playing without you. Leaving on purpose gives up your seat straight away — there is no reconnect window.'
-          : isHost
-            ? 'Someone else will take over as host.'
-            : 'You can rejoin with the same code if a seat is free.'
+        onOneDevice
+          ? 'This ends it for everyone and goes back to the start screen. Nothing is saved.'
+          : inPlay
+            ? 'Your rings stay on the board as blockers and the others keep playing without you. Leaving on purpose gives up your seat straight away — there is no reconnect window.'
+            : isHost
+              ? 'Someone else will take over as host.'
+              : 'You can rejoin with the same code if a seat is free.'
       }
       footer={
         <>
           <Button variant="danger" block onClick={() => void leaveRoom()}>
-            Leave
+            {onOneDevice ? 'End the game' : 'Leave'}
           </Button>
           <Button variant="ghost" block onClick={onClose}>
             Stay
@@ -239,9 +291,11 @@ function LeaveSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       }
     >
       <p className="o-settings__line">
-        {inPlay
-          ? 'If your connection drops instead, your seat is held for a while and you can come straight back.'
-          : ''}
+        {onOneDevice
+          ? ''
+          : inPlay
+            ? 'If your connection drops instead, your seat is held for a while and you can come straight back.'
+            : ''}
       </p>
     </Sheet>
   );

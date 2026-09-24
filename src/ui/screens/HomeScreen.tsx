@@ -125,8 +125,15 @@ export function HomeScreen() {
         <h1 className="o-home__title" ref={headingRef} tabIndex={-1}>
           Otrio
         </h1>
+        {/*
+          "One phone each" became false for half the product the moment offline
+          mode existed, and it sits a few lines above a button that says "Play
+          on this device" -- the screen contradicting itself inside one
+          viewport, in the first sentence anyone reads. (Arthur.)
+        */}
         <p className="o-home__tagline">
-          Three in a row, three of a size, or three nested. For two to four people, one phone each.
+          Three in a row, three of a size, or three nested. For two to four people, on one phone
+          or on four.
         </p>
       </header>
 
