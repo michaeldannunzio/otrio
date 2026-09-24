@@ -1453,6 +1453,47 @@
 
 .o-game__menu { flex: none; }
 
+/*
+ * The bottom HUD stacks in portrait: rail above picker, each owning the width.
+ *
+ * `.o-game__bottom` has been applied at `GameScreen.tsx` since the shell was
+ * built and has never had a rule, so `.app-hud-bottom`'s base
+ * `display: flex` with no `flex-direction` applied and the two children laid
+ * out in a ROW on every portrait phone.
+ *
+ * WHY THIS IS A MISSING RULE AND NOT A DELIBERATE ROW
+ * --------------------------------------------------
+ * Settled on a rendered frame rather than by reading intent out of the
+ * cascade: `e2e/screenshots/10-device-small-phone-360.png` (committed 16 Sep)
+ * shows the player rail in the left half and the size picker squeezed into the
+ * right, with the rail already wrapped to one card per row at **two** players.
+ * Four would be four rows. Two further signals agree — `PlayerRail`'s own
+ * header budgets "~74px" a card and says four fit a small phone, true at 336
+ * and false at 164; and `.o-sizes` carries `max-width: 30rem` with
+ * `margin-inline: auto`, two properties that can never do any work on an
+ * element permanently clamped to half a phone.
+ *
+ * THE ARITHMETIC, because it is the whole argument:
+ *   `.app-stage` pads `--hud-pad` (12px) each side, so the row is 336px at 360.
+ *   ROW    — two `width: 100%` children sharing `336 - 8` gap => ~164px each.
+ *            Four cards need `4x74 + 3x8 = 320px`. They cannot fit, so
+ *            `.o-rail__list`'s `flex-wrap: wrap` breaks them into rows.
+ *   COLUMN — each child owns 336px. 320 <= 336, so the rail is ONE row and the
+ *            picker gets its full width back.
+ *
+ * PORTRAIT ONLY, and that scoping is load-bearing. `layout.css` already sets
+ * `flex-direction: column` for phone landscape (`orientation: landscape` and
+ * `max-height: 500px`), where the shell switches to side rails and stacking is
+ * the point. That rule is Linus's. This file loads after his, so an unscoped
+ * rule here would silently take ownership of the landscape case too — same
+ * value today, and a second definition of it forever after.
+ */
+@media (orientation: portrait) {
+  .o-game__bottom {
+    flex-direction: column;
+  }
+}
+
 /* ───────────────────────────── player rail ────────────────────────────── */
 
 .o-rail { width: 100%; min-width: 0; }
