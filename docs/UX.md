@@ -586,6 +586,10 @@ of a browser. Going to get it, the premise did not survive. Three facts, each ve
 stacked.** Both are `width: 100%` flex items (`.o-rail`, `.o-sizes`), so each shrinks to
 roughly `(360 − 2×12 padding − 8 gap) / 2 ≈ 164 px`.
 
+**Superseded — see §9.** That even split is wrong: `.o-sizes` lacks the `min-width: 0`
+that `.o-rail` carries, so the picker floors at its own min-content (~173 px) and the rail
+takes the remainder (~155 px). Every "164 px" below should be read that way.
+
 **Why that matters beyond Howard's subtraction.** `.app-hud-bottom`'s height becomes
 `max(rail, picker)` rather than their sum. His arithmetic was sound; the model underneath it
 was not, and neither of us would have caught that from the panel's own numbers.
@@ -715,52 +719,65 @@ along with the bad. It is:
 
 One command, per component, and it would have caught all of this an hour earlier.
 
-### 9. The size picker has no horizontal touch floor — and that is the real defect
+### 9. The size picker's touch floor is a text metric, not a constant
 
-Charles spotted this while checking my `49 px` arithmetic, and it turns the column rule from a
-comfort judgement into a robustness one. Verified against current CSS, no frame involved.
+Charles raised this checking my arithmetic, then corrected his own framing, and Howard declined to
+write the unverified half into a comment. The corrected version is sharper than the first, so the
+chain was worth it. **The failure mode is worth naming: I had already committed his first version
+to this file and sent it to Bob as my top recommendation before the correction arrived.**
+Everything below is verified against current CSS, no frame involved.
 
-**The constants, recomputed from tokens rather than from anyone's message:**
+**Withdrawn.** I wrote that the row's margin over the 48 px touch floor was *"unprotected"*, and
+that a longer player name or a fourth seat would eat it. **It cannot.** `.o-rail` and `.o-sizes`
+are both `width: 100%`, so they shrink by **basis, not by content** — card content cannot move the
+split at all. The mechanism I published was wrong.
 
-    --hud-pad 12  --hud-gap 8  --space-2 8  --hit-min 48 (coarse pointer)
+**The real one is an asymmetry nobody chose:**
 
-    bar at 360 px    = 336.00
-    row, each child  = 164.00      col, each child = 336.00
-    row, per button  =  49.33      col, per button = 106.67
-                       +1.33 over the floor         +58.67 over
+    .o-rail  { width: 100%; min-width: 0; }     <- ui.css:1531, explicit
+    .o-sizes { width: 100%; }                   <- no min-width at all
 
-**The part that matters: that 1.33 px is unprotected.** `.o-size` is `flex: 1 1 0` with
-`min-height: calc(var(--hit-min) + var(--space-4))` — 64 px — and **no `min-width` at all**.
-Nothing in `.o-sizes*` sets one. So the 48 px floor is enforced vertically and merely *emergent*
-horizontally: it holds only because the container happens to be 336 px wide today.
-`flex-shrink: 1` with no floor will go under 48 silently — no error, no failing test, no visible
-break — the moment anything narrows the picker's share.
+`.o-rail` opts out of flexbox's `min-width: auto` default. `.o-sizes` does not, so **the picker
+floors at its own min-content and the rail gives way.** Almost certainly one author remembering
+the `min-width: 0` idiom and the other not. **Load-bearing by accident: the picker wins the shrink
+contest because of a declaration that is missing, not one that was written.**
 
-**And the codebase already has the pattern, applied to a less important control.**
+**This also corrects a figure used throughout §8 above, including by me.** The split is **not**
+164/164. The picker floors at min-content — measured ~173 px off the frame — and the rail takes
+the remainder, ~155 px. I computed 164, measured 173, and called it *"close enough to confirm the
+model"*. **It was not rounding; it was this mechanism.** The number that disagreed with my model
+was the one carrying the information — the shadow-calculation lesson from this very page,
+committed by its own author. Treat every "164 px" in §8 as "~155 px rail / ~173 px picker".
+
+**So a floor exists — just not the one the codebase sets for itself.** `.o-size` has
+`min-height: calc(var(--hit-min) + var(--space-4))` and **no `min-width`**, so nothing enforces
+48 px horizontally and nothing would report a breach. What the buttons get is min-content of
+`.o-sizes__group`, driven by the longest label — *"Medium"* — plus padding and border. **Whether
+this product meets its own coarse-pointer touch floor currently depends on how wide the word
+"Medium" happens to render.** That is a font metric, not derivable from the stylesheet, and
+nobody has measured it. It appears to clear 48 px today. That is not the same as being enforced,
+and it would not survive a shorter label or a translation.
+
+**And the codebase applies the missing pattern to a lesser control:**
 
 | | horizontal floor | vertical floor |
 |---|---|---|
-| `.o-iconbtn` — the menu button (`ui.css:184-189`) | `min-width: var(--hit-min)` | `min-height: var(--hit-min)` |
-| `.u-touch-target` — the shared utility (`utilities.css:37-41`) | `min-width: var(--hit-min)` | `min-height: var(--hit-min)` |
-| **`.o-size` — the primary game control** | **none** | `min-height: calc(--hit-min + --space-4)` |
+| `.o-iconbtn`, the menu button (`ui.css:184-189`) | `min-width: var(--hit-min)` | yes |
+| `.u-touch-target`, the shared utility (`utilities.css:37-41`) | `min-width: var(--hit-min)` | yes |
+| **`.o-size`, the primary game control** | **none — min-content of "Medium"** | yes |
 
-`.u-touch-target`'s own comment says it exists to *"meet the 44/48px minimum target"*. `.o-size`'s
-own comment reads *"Big. This is the control a thumb hits under time pressure."* **The one control
-both comments are describing is the one with no horizontal floor.** That is not a preference call;
-it is an inconsistency against the project's own published standard.
+`.u-touch-target`'s comment says it exists to *"meet the 44/48px minimum target"*. `.o-size`'s
+reads *"Big. This is the control a thumb hits under time pressure."* **The control both comments
+describe is the one whose compliance rests on a word length.**
 
-**Recommendation, and it is a better fix than the column rule:** add
-`min-width: var(--hit-min)` to `.o-size`. Then the floor is enforced on both axes rather than
-inherited from whatever width the container happens to have, in every layout, at every
-breakpoint, in both modes — house rule 6's "structurally impossible rather than merely avoided",
-and this page's own "a published limit beats a standing agreement between two files".
+**Recommendation, unchanged by the correction and strengthened by it:**
+`min-width: var(--hit-min)` on `.o-size` — replacing an accidental text-metric floor with the
+intended one. It is a **shared control at every breakpoint**, not an offline-mode fix, so it is
+Bob's to route rather than Howard's to absorb.
 
-**It also right-sizes §8.** With a real `min-width`, the picker cannot drop under the floor in
-*any* arrangement, so the portrait column becomes a comfort improvement rather than the only thing
-standing between a player and a sub-floor control. That is the correct weight for it, and it is a
-much smaller thing to be wrong about.
-
-Owner: Howard (`src/ui/ui.css`). One declaration.
+**It also right-sizes §8.** With a real floor the picker cannot drop under 48 px in any
+arrangement, so the portrait column becomes a comfort improvement rather than the only thing
+between a player and a sub-floor control — a much smaller thing to be wrong about.
 
 ### What not to touch
 
