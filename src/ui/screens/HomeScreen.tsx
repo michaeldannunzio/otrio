@@ -26,6 +26,7 @@ import { useScreenFocus } from '../lib/a11y';
 import { Button, Card, Field, Segmented, Switch } from '../components/primitives';
 import { RoomCodeInput } from '../components/RoomCode';
 import { HowToPlay } from '../components/HowToPlay';
+import { LocalSetup } from './LocalSetup';
 
 /**
  * The first screen: pick a name, then either open a room or join one.
@@ -150,8 +151,19 @@ export function HomeScreen() {
           <Button size="lg" block onClick={() => setEntry('join')} disabled={!configured}>
             Join with a code
           </Button>
+          {/*
+            Third and last, not first: sharing a code is still the main way in,
+            and this is the answer to "we are all sitting here". It is not
+            gated on `configured` like the other two -- they need the installed
+            backend, and this one replaces it.
+          */}
+          <Button size="lg" block onClick={() => setEntry('local')}>
+            Play on this device
+          </Button>
         </div>
       ) : null}
+
+      {entry === 'local' ? <LocalSetup /> : null}
 
       {entry === 'create' ? (
         <Card className="o-home__card">

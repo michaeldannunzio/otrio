@@ -11,7 +11,7 @@
  * Safe to call from an event handler, a keyboard shortcut, or a raycast hit.
  */
 
-import { runCommand, getTransport } from './transportStore';
+import { runCommand, getTransport, setTransport, toWireError } from './transportStore';
 import type { CommandResult } from './transportStore';
 import { useUi } from './uiStore';
 import { usePrefs } from './prefsStore';
@@ -29,7 +29,9 @@ import type {
   RoomCode,
   Seat,
 } from '../net/protocol';
-import { normalizeRoomCode } from '../net/protocol';
+import { MAX_PLAYERS, MIN_PLAYERS, isLocalRoomCode, normalizeRoomCode } from '../net/protocol';
+import { toLocalSeatNames } from '../net/transport';
+import type { Transport } from '../net/transport';
 
 /* -------------------------------------------------------------------------- *
  * Link
@@ -69,11 +71,41 @@ export async function joinRoom(
   return result;
 }
 
+/**
+ * Leave the room.
+ *
+ * LEAVING A LOCAL GAME RELOADS THE PAGE (approved by Bob, 2026-09-24)
+ * ------------------------------------------------------------------
+ * Entering local mode replaces the installed transport, so on the way out the
+ * app is still holding a single-device backend with no room in it — and both
+ * home-screen buttons are then wrong in ways a player cannot see. "Start a new
+ * game" would silently open *another* hot-seat room with the previous game's
+ * seat names; "Join with a code" would reject `UNSUPPORTED`. A live dead end,
+ * not a cosmetic one.
+ *
+ * A reload rather than rebuilding the default transport in place, for the same
+ * reason `switchToHostedBackend` below reloads: the `connect()` effect in
+ * `App.tsx` fires on every transport identity change, so an in-place rebuild
+ * races that effect and can leave a half-disposed instance behind. A reload
+ * cannot, it is instant, and it works with no network because the shell is
+ * precached. `rememberTransportKind` is never given `'local'`, so the reload
+ * comes back on the online default.
+ *
+ * The code is read *before* leaving, because `leaveRoom` clears `room` and
+ * afterwards there is nothing left to test.
+ */
 export async function leaveRoom(): Promise<CommandResult<void>> {
+  const code = getTransport()?.getSnapshot().room?.code;
+  const wasOnOneDevice = code !== undefined && isLocalRoomCode(code);
+
   const result = await runCommand((t) => t.leaveRoom());
   useUi.getState().resetForNewRoom();
   interaction.get().reset();
   moveLog.clear();
+
+  // Unconditional on the result: if the leave itself failed we are in a state
+  // nobody designed, and a reload is the recovery for that too.
+  if (wasOnOneDevice) window.location.reload();
   return result;
 }
 
@@ -91,6 +123,80 @@ export async function setName(name: string): Promise<CommandResult<void>> {
 
 export function startGame(): Promise<CommandResult<void>> {
   return runCommand((t) => t.startGame());
+}
+
+/**
+ * Start a pass-and-play game on this one device.
+ *
+ * Three steps that are deliberately not separable: build the single-device
+ * backend, open its room, start the game. **There is no lobby in local mode**
+ * (Bob, 2026-09-24) — `createRoom` seats and readies every player from
+ * `seatNames`, and stopping between it and `startGame` would render a ready-up
+ * screen with nobody to wait for. So they are one action, and the player sees
+ * one button.
+ *
+ * `createRoom()` takes NO options here, and that is the point. The local
+ * transport builds `{ maxPlayers: seatNames.length, allowSpectators: false,
+ * turnTimeoutMs: LOCAL_TURN_TIMEOUT_MS }` itself, because `seatNames.length`
+ * *is* the player count — passing a `maxPlayers` from this side would be a
+ * second definition of one number, free to disagree with the first.
+ *
+ * Swapping the installed transport is what `setTransport` is for: the previous
+ * instance is disposed and genuinely unreachable afterwards. Two consequences
+ * worth stating rather than discovering:
+ *
+ *   - If `createRoom` or `startGame` fails *after* the swap, the local backend
+ *     stays installed. Survivable only because this is reachable from the home
+ *     screen alone, where there is no room to lose; the error is returned and
+ *     the player is still on the setup screen.
+ *   - The choice is deliberately NOT given to `rememberTransportKind`. A sticky
+ *     `'local'` is read back at the next boot by a `defaultTransportKind` that
+ *     has no seat names to hand it, and the local arm is required to reject
+ *     rather than invent them. See `buildTransport` in `main.tsx`.
+ *
+ * Names are passed through unsanitised on purpose: the referee sanitises them,
+ * exactly as it does online, so a hot-seat name and a networked name get
+ * identical treatment. Substituting a *blank* field's default is the caller's
+ * job and happens in the setup screen, where the seat's colour is known.
+ */
+export async function startLocalGame(
+  names: readonly string[],
+): Promise<CommandResult<RoomCode>> {
+  // `toLocalSeatNames` narrows `string[]` to the 2-4 tuple union or returns
+  // null. The length is checked here rather than asserted because this is the
+  // boundary where a UI's growable array becomes a fixed-arity seat list.
+  const seatNames = toLocalSeatNames(names);
+  if (!seatNames) {
+    return {
+      ok: false,
+      error: {
+        code: 'UNSUPPORTED',
+        message: `A game on one device needs ${MIN_PLAYERS} to ${MAX_PLAYERS} players.`,
+        retryable: false,
+      },
+    };
+  }
+
+  let transport: Transport;
+  try {
+    // Literal specifier, as everywhere else that reaches the backend barrel.
+    const { createTransport } = await import('../net');
+    transport = await createTransport('local', { seatNames });
+  } catch (error) {
+    // Reported, never substituted. Until `src/net/localTransport.ts` lands this
+    // is the expected path: the factory throws `UNSUPPORTED` naming the missing
+    // module, and that sentence is what the player sees. Handing back some
+    // other backend here is the failure mode this whole arrangement exists to
+    // avoid — an offline mode that quietly opens a socket.
+    return { ok: false, error: toWireError(error) };
+  }
+  setTransport(transport);
+
+  const opened = await createRoom();
+  if (!opened.ok) return opened;
+  const started = await startGame();
+  if (!started.ok) return { ok: false, error: started.error };
+  return opened;
 }
 
 export function requestRematch(accept: boolean): Promise<CommandResult<void>> {

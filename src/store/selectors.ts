@@ -8,7 +8,7 @@
  * during render, and it will re-render exactly when the room actually changed.
  */
 
-import { BOARD_CELLS, MIN_PLAYERS, PIECE_SIZES } from '../net/protocol';
+import { BOARD_CELLS, MIN_PLAYERS, PIECE_SIZES, isLocalRoomCode } from '../net/protocol';
 import type {
   CellIndex,
   CellState,
@@ -41,7 +41,26 @@ export type Route = 'home' | 'lobby' | 'game';
 export function routeOf(snapshot: TransportSnapshot): Route {
   const room = snapshot.room;
   if (!room) return 'home';
-  return room.phase === 'lobby' ? 'lobby' : 'game';
+  /*
+   * A local room never shows a lobby, and that is stated here rather than left
+   * to timing.
+   *
+   * The decision is Bob's (2026-09-24): `createRoom` seats and readies every
+   * player from the config and the caller invokes `startGame()` immediately.
+   * But "immediately" is two `await`s apart in `startLocalGame`, with a store
+   * notification between them, so `phase: 'lobby'` is a state React genuinely
+   * can render -- and it would render a ready-up screen for a game with nobody
+   * to wait for, on the way into every single local game.
+   *
+   * Relying on those two calls being fast would make the absence of that flash
+   * a side effect nobody chose. One line here makes it a property.
+   *
+   * `isLocalRoomCode(room.code)`, never `capabilities.kind`: `kind` is
+   * documented diagnostics-only and the room code is the supported feature
+   * test (Homer, 2026-09-24).
+   */
+  if (room.phase === 'lobby') return isLocalRoomCode(room.code) ? 'game' : 'lobby';
+  return 'game';
 }
 
 /* -------------------------------------------------------------------------- *

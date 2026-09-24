@@ -18,6 +18,7 @@ import { create } from 'zustand';
 
 import { TransportError, initialQuality } from '../net/transport';
 import type { Transport, TransportSnapshot } from '../net/transport';
+import { MAX_PLAYERS } from '../net/protocol';
 import type { Capabilities, ErrorCode, WireError } from '../net/protocol';
 
 /* -------------------------------------------------------------------------- *
@@ -87,14 +88,35 @@ export function getTransport(): Transport | null {
  * The "no transport" snapshot
  * -------------------------------------------------------------------------- */
 
-const OFFLINE_CAPABILITIES: Capabilities = {
+/**
+ * Capabilities reported while **no backend is installed at all** -- during boot,
+ * and after `setBootError`.
+ *
+ * It was called `OFFLINE_CAPABILITIES`, which was merely vague until
+ * `src/net/localTransport.ts` made "offline" the name of a real backend with
+ * real capabilities (`LOCAL_CAPABILITIES` in `transport.ts`). Two objects a
+ * reader would reasonably expect to be the same thing, and they are opposites:
+ * that one describes a game that works with no network, this one describes no
+ * game at all.
+ *
+ * Every flag is `false`/`0` because nothing is possible yet, not because any
+ * backend says so. `kind` is the one field with no honest value -- `Capabilities
+ * ['kind']` has no "none" member -- so it holds the default backend's name as an
+ * inert placeholder. Safe only because `kind` is documented diagnostics-only and
+ * nothing outside `src/net/` reads it (grepped 2026-09-24). Anything wanting to
+ * know "is this a local game" uses `isLocalRoomCode(room.code)`; if a reader of
+ * this field ever appears, this literal is a lie and the field needs widening.
+ */
+const NO_TRANSPORT_CAPABILITIES: Capabilities = {
   kind: 'hosted',
   spectators: false,
   reconnect: false,
   reconnectGraceMs: 0,
   hostMigration: false,
+  // Imported, not retyped: the seat ceiling belongs to the protocol, and a `4`
+  // here is a second definition of it that nothing would catch drifting.
+  maxPlayers: MAX_PLAYERS,
   impartialReferee: false,
-  maxPlayers: 4,
 };
 
 /**
@@ -115,7 +137,7 @@ const NO_TRANSPORT_SNAPSHOT: TransportSnapshot = Object.freeze({
   pendingMove: null,
   quality: Object.freeze(initialQuality()),
   lastError: null,
-  capabilities: OFFLINE_CAPABILITIES,
+  capabilities: NO_TRANSPORT_CAPABILITIES,
 }) as TransportSnapshot;
 
 const NO_OP_UNSUBSCRIBE = () => {};
@@ -202,7 +224,15 @@ export function useNetSnapshot(): TransportSnapshot {
 
 export type CommandResult<T> = { ok: true; value: T } | { ok: false; error: WireError };
 
-function toWireError(err: unknown): WireError {
+/**
+ * Normalise anything thrown into a `WireError`.
+ *
+ * Exported for `startLocalGame` in `actions.ts`, which is the one command whose
+ * failure can happen *before* a transport exists — `createTransport` itself
+ * rejects — so it cannot go through `runCommand` and would otherwise need its
+ * own copy of this mapping.
+ */
+export function toWireError(err: unknown): WireError {
   if (err instanceof TransportError) {
     return { code: err.code, message: err.message, retryable: err.retryable };
   }

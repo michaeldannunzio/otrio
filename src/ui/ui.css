@@ -751,6 +751,45 @@
   color: var(--text-muted);
 }
 
+/* ─────────────────────── on-this-device setup ─────────────────────────── */
+
+.o-local__seats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/*
+ * Badges beside the field rather than above it, so a four-seat list stays
+ * inside 640px of height on the small-phone profile with the count selector and
+ * both buttons still on screen.
+ */
+.o-local__seat {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/*
+ * `padding-top` aligns the badges with the input, not with the field's label
+ * above it. A hand-tuned offset because the label's own line box is what the
+ * input sits below, and there is no layout relationship to key off.
+ */
+.o-local__seatColours {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  padding-top: calc(var(--space-6) - var(--space-1));
+}
+
+.o-local__seatName {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /*
  * A real disclosure. The old markup was a bare `<details>` with no chevron and
  * no affordance, so "How you win" read as a heading whose content had failed to

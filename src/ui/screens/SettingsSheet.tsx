@@ -6,7 +6,7 @@ import {
   usePrefs,
   useUi,
 } from '../../store';
-import { MAX_NAME_LENGTH } from '../../net/protocol';
+import { MAX_NAME_LENGTH, isLocalRoomCode } from '../../net/protocol';
 import { setName } from '../../store';
 import { describeQuality } from '../lib/copy';
 import { gradeQuality } from '../../net/transport';
@@ -53,6 +53,15 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
   const capabilities = useNet((s) => s.capabilities);
   const inGame = room !== null && room.phase !== 'lobby';
   const finished = outcomeOf(room).kind !== 'none';
+  /*
+   * Is this a game being passed round one device?
+   *
+   * `isLocalRoomCode(room.code)` is the supported feature test and
+   * `capabilities.kind` is explicitly not one -- it is documented
+   * diagnostics-only (Homer, 2026-09-24), and the "no transport installed"
+   * literal in `transportStore.ts` reports `kind: 'hosted'` while being neither.
+   */
+  const onOneDevice = room !== null && isLocalRoomCode(room.code);
 
   return (
     <Sheet open={open} onClose={onClose} title="Game menu">
@@ -127,15 +136,41 @@ function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }
         {room ? (
           <div className="o-settings__section">
             <h3 className="o-settings__heading">This room</h3>
-            <p className="o-settings__line">{describeQuality(gradeQuality(quality.rttMs), quality.rttMs)}</p>
+
+            {/*
+              Latency. Hidden on one device because the sentence would be a
+              lie about a link that does not exist: with no ping there is no
+              `rttMs`, `gradeQuality(null)` is `'unknown'`, and
+              `describeQuality` renders that as "Connection quality unknown"
+              -- which reads as a connection being measured badly rather than
+              as no connection at all. (Both functions read 2026-09-24; this
+              is what they return, not what I expect them to.)
+            */}
+            {!onOneDevice ? (
+              <p className="o-settings__line">
+                {describeQuality(gradeQuality(quality.rttMs), quality.rttMs)}
+              </p>
+            ) : null}
+
             {capabilities && !capabilities.impartialReferee ? (
               <p className="o-settings__line">
                 Friendly game — one of the phones is running the rules rather than a server.
               </p>
             ) : null}
-            <Button block onClick={() => openSheet('room-info')}>
-              Show the room code
-            </Button>
+
+            {/*
+              Sharing the code. A local code is a sentinel, not an invitation:
+              `newLocalRoomCode()` mints `LOCAL` + 6 characters purely so the
+              referee's `hashSeed(code, seq)` varies who opens the game, and
+              `isPlausibleRoomCode` returns false for it, so a player who typed
+              one into another phone would get `CODE_INVALID`. Offering it to
+              share is offering something that cannot work.
+            */}
+            {!onOneDevice ? (
+              <Button block onClick={() => openSheet('room-info')}>
+                Show the room code
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

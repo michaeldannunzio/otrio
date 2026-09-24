@@ -92,8 +92,16 @@ export type SheetId =
   | 'how-to-play'
   | 'move-log';
 
-/** Which pre-room screen the player is looking at. */
-export type EntryView = 'home' | 'join' | 'create';
+/**
+ * Which pre-room screen the player is looking at.
+ *
+ * `'local'` is the setup step for a game on this one device: player count and a
+ * name per seat. It is a sibling of `'create'` rather than a mode flag because
+ * it is genuinely a different screen with different questions — a local game
+ * asks for every player's name up front and has no room code, no spectators and
+ * no lobby to wait in.
+ */
+export type EntryView = 'home' | 'join' | 'create' | 'local';
 
 export interface UiState {
   entry: EntryView;
