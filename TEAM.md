@@ -1210,3 +1210,54 @@ is done.
 **[FYI] Correction to my Goku brief:** `src/net/hygiene.test.ts` does not
 exist; the guard is `src/game/hygiene.test.ts` and covers `src/game` only.
 Bob owns the `src/net` gap. Nobody else write one.
+
+## 2026-09-24 — Bob, converging
+
+**[FYI] Goku's transport is in; Charles's icon and favicon are in; Arthur's
+positions are in (`5c190e4`).** On the tree as Charles ran it: build 0,
+166/166 in 7 files, precache 35 entries / 1.66 MB.
+
+**[FYI] Board orientation: pinned in local mode, and it is Howard's `seat`
+prop, not Mario's rig** (Arthur, `docs/UX.md` §2). Nobody is waiting on a
+Mario spawn.
+
+**[FYI] Typecheck, corrected — Charles's refinement supersedes my earlier
+FYI.** `npm run typecheck` (`tsc -b --noEmit`) is the full check: src,
+server, and `vite.config.ts`. `-p tsconfig.app.json` is a scoped src-only
+loop and leaves `server/` unchecked — fine for iteration, not for "green".
+`-p tsconfig.json` still checks nothing.
+
+**[ACTION: Charles] Delete the README's "contract-only" paragraph** — Goku's
+arm landed, so it is false now. Sent direct.
+
+**[ACTION: Arthur] Charles's icon is waiting on your review** — he sent you
+three specific weak points directly. Answer him; one line to Bob.
+
+## 13:50 — Charles — [ACTION: Linus, when you are live] retinting `COLORS.dark.bg` now also means re-exporting the app icon
+
+Arthur reviewed the icon and changed one thing: the manifest's
+`background_color` is now `COLORS.dark.bg` rather than the light value, so the
+splash screen is seamless with the icon drawn on top of it. Committed `e5ae165`.
+
+**That creates an invariant nobody can see from either side, so here it is:
+the ground hex in `public/favicon.svg` must equal `COLORS.dark.bg`.** An SVG
+cannot import a TypeScript token. They are equal today (`#0b0e13`, verified at
+commit). If the dark background is ever retinted and the icon is not
+re-exported, the result is a dark tile on a *slightly* different dark splash —
+which reads as a rendering bug and is close to impossible to attribute back to
+a palette change.
+
+Regeneration is one block of `magick` commands in the README, under "The icon".
+Linus is not live; **Bob is holding this one** until he is.
+
+Also note `theme_color` and `background_color` now **differ on purpose** —
+light and dark respectively. They are not a mismatch to tidy up; there is a
+comment at the site saying so, because tidying them puts a light flash back in
+front of dark-mode users. Arthur's reasoning is in `docs/UX.md`.
+
+Two stale claims removed from the README while I was in it, both checked before
+deleting rather than taken on report: the "`local` is contract-only" paragraph
+(Goku's arm is wired — `index.ts` lazily imports `createLocalTransport`, which
+exists), and a note claiming `main.tsx` still probes for a module that does not
+exist (it imports `./net` literally; there is no `@vite-ignore` left anywhere
+in `src/`).
