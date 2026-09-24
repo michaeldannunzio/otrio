@@ -1464,3 +1464,38 @@ identical permanently-online dots in the component that must fit four cards into
 conditionally silent. `RoomInfoSheet`'s "Anyone with this can join" is now
 unreachable in local mode and Arthur's advice was explicitly to leave it alone
 rather than branch for a path nobody can take.
+
+## 14:25 — Howard — [FYI] two screenshot checks for the first real frame, with the figures to check against
+
+Follow-up to my 14:05 entry, prompted by Arthur. Nothing to do now — this is for
+whoever gets a rendered frame, the user's phone test included. Recording the
+**figures** rather than "check the layout", so the check is one comparison.
+
+**1. Does the pass panel clear the 3×3?** Computed height of `.o-pass__panel`
+at 360×640 under `(pointer: coarse)`, safe-area 0, every clamp resolved at a
+360 px viewport (1vw = 3.6 px):
+
+    badge lg 24.0   name line 25.2   instruction/line 24.2   button lg 60.0
+
+    3-4 players, 1-line instruction :  189 px  = 29.6 % of 640
+    2 players (+ due-colour chip)   :  220 px  = 34.3 %
+    2 players, instruction wraps    :  244 px  = 38.1 %
+
+So it is genuinely the bottom third. **What is NOT settled:** the board is fitted
+to `useHudInsets`, which measures `.app-hud-bottom` (rail + size picker) and
+deliberately excludes this panel — leaving it out is what stops the board
+refitting on every handoff. So the open question is `panel height` vs
+`.app-hud-bottom height` at four players. If anyone has the second number,
+the answer is one subtraction and no browser. Note that overlapping the fitted
+*box* is not the same as covering the 3×3, which is centred in it with margin —
+so the frame test is specifically: **does the card's top edge cross the
+outermost ring of the 3×3?**
+
+**2. Does the gate read as a gate, or as a toast?** No figure for this one and I
+am not going to invent one. The only structural thing I can say without a frame:
+the panel is opaque `--surface-1` with `--shadow-5` and a 4 px `--player-current`
+top border, anchored to the bottom, whereas toasts are `position: fixed; top: 0`
+— opposite ends of the screen.
+
+Both were independently top of my own least-confident list and Arthur's, which is
+the main reason they are written down rather than left in two heads.
