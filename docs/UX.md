@@ -12,11 +12,22 @@ after.
 one shared phone — the handoff, the board's orientation, the setup screen, and every string
 that stops being true on one device — are in **"Offline mode"**, below the checks.
 
-> **Those screenshots are stale, and you should know how.** All 21 were taken before the
-> scene was wired, so every one shows an empty board. Checks 1, 2, 3, 5 and 7 are about
-> HUD and copy and stand as written. Anything I have said about the *board* — its size on
-> a phone, the storage arms, piece legibility, the table colour — is **provisional** until
-> a run exists with pieces in it.
+> **Those screenshots are stale, and you should know how — corrected 2026-09-24, because I
+> had over-hedged this.** I wrote that all 21 "were taken before the scene was wired". That is
+> **wrong**, and I found it by opening two of them instead of citing them. The scene *is*
+> wired: the board, the table, the storage arms, the arm colour bars, the lighting and the cast
+> shadow all render. What is missing is **pieces** — `09-board-four-rings.png` is the proof, and
+> it is a striking frame: the `TextBoard` at the bottom shows four rings placed while the 3D
+> board above it is empty.
+>
+> So the hedge was a whole category where only one member was unknown — the exact
+> "unknowable, or unknowable *from here*?" trap this page documents, applied to my own
+> evidence. Board size on a phone, the storage arms and the table colour **are** testable from
+> these frames and I should have been reading them all along. **Only piece legibility is
+> genuinely unknown**, because no frame has a piece in it.
+>
+> Checks 1, 2, 3, 5 and 7 are about HUD and copy and stand as written — and **check 2 is now
+> confirmed by pixels rather than inferred**, see below.
 >
 > **All 21 are also light mode, and that is not a coverage gap — it is a specific unknown.**
 > `BOARD_TINTS` is the same value in both themes on purpose; only the lighting moves. So
@@ -67,6 +78,14 @@ same size, same weight, and only one of them is readable, because one has a
 `--surface-2` pill behind it.
 
 **Rule: any HUD text over the canvas gets a surface behind it, or it does not go there.**
+
+**Confirmed by frame, 2026-09-24 — this was previously an inference from the CSS.** Visible in
+both `10-device-small-phone-360.png` and `09-board-four-rings.png`: *"Placing Green. Pick a size,
+then a space."* renders as grey, plate-less text lying across the board edge and the table, and
+it is genuinely hard to read. Directly beneath it, *"You must switch colours every turn, so only
+green can move now."* sits in a white `--surface-2` pill and is perfectly legible. **Same size,
+same weight, one readable.** It is one pill in `src/ui/ui.css` and it is live in both online and
+offline modes. Owner: Howard.
 
 ### 3. Does it work in 360 px of width and 640 px of height?
 
@@ -327,6 +346,13 @@ colour 0 top, 1 right, 2 bottom, 3 left). In the rotating case that diagram is w
 players in four. Pinned, the reveal panel is a correct legend for the rest of the game — which is
 why 1b matters, and why `SOUTH` rather than seat 0: seat 0 is *north*, so pinning there costs a
 180° rotation away from the identity and hands one seat the privileged view on a device nobody owns.
+
+**Corroborated by a frame, 2026-09-24.** `09-board-four-rings.png` is Ada's view, and Ada is
+seat 0. The arm bars render **red on the left and blue on the right** — east and west swapped,
+i.e. the board rotated 180°, exactly `boardYawForSeat(0) = ((0 − 2) × PI) / 2 = −PI`. That both
+confirms the rotation mechanism works as documented and makes the concrete case for pinning to
+`SOUTH` rather than to seat 0: seat 0 is north, so pinning there would ship that 180° rotation
+permanently, for no gain, on a device nobody owns.
 
 **Load-bearing by accident, so it gets written down.** The `ColourReveal` arm diagram and the
 pinned board agree only because `boardYawForSeat(SOUTH) === 0`. Nobody designed that agreement; I
@@ -605,8 +631,42 @@ seen it render.
 **Owner: Howard** (`.o-game__bottom` would live in `src/ui/ui.css`; `layout.css` is Linus's and
 needs no change either way). **Nobody should write the rule on the strength of five signals** —
 if the row is deliberate, an unreviewed `flex-direction: column` at four players is a worse
-outcome than the ambiguity. It is with Bob, correctly. What it needs is a decision or a frame,
-not another inference.
+outcome than the ambiguity. What it needs is a decision or a frame, not another inference.
+
+### 8b. Resolved — by a frame, which beat all six inferences
+
+Howard opened `e2e/screenshots/10-device-small-phone-360.png`. I opened it too rather than take
+the read. **Rail in the left half, size picker squeezed right, and at *two* players the rail has
+already wrapped to one card per row** — Ada above Grace. Four players is four rows. Bob
+authorised the fix; it is portrait-scoped so `ui.css` does not silently become a second
+definition of the `column` that `layout.css` already owns in phone landscape:
+
+    @media (orientation: portrait) { .o-game__bottom { flex-direction: column; } }
+
+**One figure of mine the frame confirmed rather than merely agreed with.** I computed the row
+children at `(360 − 24 − 8) / 2 ≈ 164 px`; measuring the picker off the frame at 3× DPR gives
+**~173 CSS px**. That arithmetic was what the entire row/column argument rested on, so having it
+land against pixels matters more than the conclusion it supported.
+
+**What the frame does *not* settle, and must not be read as settling.** The column rule fixes the
+*horizontal* squeeze. It does not deliver check 3's "controls in the bottom third, where a thumb
+reaches" — in that frame the whole HUD including the size picker sits in the top ~45 % with ~40 %
+empty below. Howard correctly quarantined that as predating the `.o-app` height fix and did not
+cite it; I equally cannot confirm the fix from this frame, because it is stale on exactly that
+axis. **Two problems. This closes one.**
+
+**The precise ask for the next frame** — worth stating in this form rather than as "check the
+layout": *photograph a four-player game at 360 px and check whether `.o-rail__list` is on one row
+or two.* Column gives the rail the full 336 px and four cards at the ~74 px its header budgets
+need 320 px, a 16 px margin — but the frame shows a *two-colour* card at roughly **102 CSS px**.
+A four-player card carries three tray columns instead of six and should be narrower, but nobody
+has measured one, and after four overturned estimates in one day I am not supplying a fifth.
+
+**The lesson, and it is the cheapest one on this page.** Six inferences across three people —
+a dead class, a code comment, two dead CSS properties, a cascade order, a checklist item — all
+pointing the right way, none of them proof, and the thing that actually settled it was a PNG
+that had been sitting in the repo since 16 September costing nothing to open. **Before the next
+long inference chain: check whether the answer is already committed.**
 
 ### What not to touch
 
