@@ -69,11 +69,33 @@ describe('app icon palette', () => {
    * the four fills. An icon sits on a home screen, outside any theme, so it
    * can only be drawn from values that do not move between themes.
    *
-   * This is load-bearing in a way that is easy to miss: in the LIGHT theme
-   * `player1` and `player1Ui` are the same hex, so matching the icon's purple
-   * against `player1Ui` would also have passed. The `Ui` variants are
-   * theme-dependent, so binding the icon to one would look correct today and
-   * break on the next theme retint for no reason a reader could see.
+   * It is also the only thing that identifies the right FIELD, which matters
+   * because `playerN` and `playerNUi` collide on hex more often than not
+   * (computed from tokens.ts, 2026-09-24):
+   *
+   *            light base   light Ui    dark base   dark Ui    collides
+   *   purple   #7237b8      #7237b8     #7237b8     #b877ff    in light
+   *   red      #e8501e      #c63100     #e8501e     #ff6430    never
+   *   green    #a2d733      #517400     #a2d733     #a2d733    in dark
+   *   blue     #1cafd2      #00738c     #1cafd2     #1cafd2    in dark
+   *
+   * Three of the four collide, and WHICH ones depends on the theme you happen
+   * to look at — so checking one theme yields a different wrong answer about
+   * which colours are safe to identify by hex, and there is always one colour
+   * that appears to confirm whatever rule you just formed. Matching a hex does
+   * not identify a field here.
+   *
+   * What does: `playerN` is theme-independent for 4 of 4, `playerNUi` for 0 of
+   * 4. That separates the two sets completely and for every colour, so the
+   * assertion below is a decision procedure rather than a spot check that
+   * happens to hold.
+   *
+   * Deliberately NOT asserted: that no `playerNUi` is theme-independent. It is
+   * true today and it is what makes the separation total, but it is a fact
+   * about the palette rather than about the icon, and pinning it here would
+   * fail the icon's guard for a theming change that does the icon no harm.
+   * The palette's owner should be free to make a `Ui` value theme-independent
+   * without this test having an opinion.
    */
   it('draws from the identity fills, which are theme-independent', () => {
     expect(COLORS.light.player1).toBe(COLORS.dark.player1);

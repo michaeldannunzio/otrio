@@ -383,10 +383,18 @@ imports that token so the splash is seamless with the icon on top of it, and a
 drift there gives a dark tile on a *slightly* different dark splash, which
 reads as a rendering bug and is very hard to attribute.
 
-Note the icon tracks `playerN`, the theme-independent identity fill — **not**
-`playerNUi`, which is theme-dependent and, in the light theme, happens to be
-the same hex for purple. Binding the icon to the `Ui` variant would pass today
-and break on the next theme retint for no visible reason.
+The icon tracks `playerN`, the identity fill — **not** `playerNUi`. Matching a
+hex does not tell you which of the two you have: three of the four collide, and
+which three depends on the theme you look at (purple in light; green and blue
+in dark; red never). So checking one theme gives a different wrong answer about
+which colours are safe to identify by hex, with one colour always appearing to
+confirm whatever rule you just formed.
+
+The property that actually separates them is theme-independence — `playerN`
+holds it for 4 of 4, `playerNUi` for 0 of 4 — which is why the test asserts
+that first. It is a decision procedure, not a spot check. Bind the icon to the
+`Ui` variant and it passes today, then breaks on the next theme retint for no
+visible reason.
 
 Every PNG is rasterised from that SVG, so the vector and the bitmaps cannot
 drift. To regenerate after editing it:
