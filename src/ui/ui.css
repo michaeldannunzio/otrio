@@ -811,7 +811,8 @@
   display: flex;
   justify-content: center;
   padding: var(--space-3);
-  padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  /* `--safe-bottom`, not a second `env()` call: the token layer owns that. */
+  padding-bottom: calc(var(--space-3) + var(--safe-bottom));
   pointer-events: auto;
 }
 
