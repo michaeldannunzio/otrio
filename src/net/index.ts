@@ -28,7 +28,7 @@
 
 import { createWsTransport } from './wsTransport';
 import type { WsTransportConfig } from './wsTransport';
-import { loadOrCreateIdentity, TransportError } from './transport';
+import { loadOrCreateIdentity, toLocalSeatNames, TransportError } from './transport';
 import type {
   Identity,
   LocalSeatNames,
@@ -193,18 +193,30 @@ export async function createTransport(
       return createWsTransport(config);
     }
 
-    case 'local':
-      // The contract for this backend is published (LOCAL_CAPABILITIES,
-      // LocalTransportConfig, SINGLE-DEVICE BACKEND in transport.ts) but
-      // `localTransport.ts` does not exist yet. Refusing here is the whole
-      // point: the alternative — quietly handing back some other backend —
-      // is how a missing module becomes a runtime mystery. When that file
-      // lands, this case gains a lazy import and `CreateTransportOptions`
-      // gains the seat names; both belong in the commit that adds it.
-      throw new TransportError(
-        'UNSUPPORTED',
-        'The single-device backend is not built yet (src/net/localTransport.ts is missing).',
-      );
+    case 'local': {
+      // Lazily imported for the same reason as `p2p`: a hosted-only session
+      // should not pay for the referee and the rules engine it will never run.
+      const { createLocalTransport } = await import('./localTransport');
+
+      // `seatNames` is optional in `CreateTransportOptions` because two of the
+      // three backends ignore it, so a missing value type-checks at this call
+      // and nowhere else. Re-narrowing through `toLocalSeatNames` rather than
+      // trusting the declared tuple also catches a caller who arrived through a
+      // cast, and leaves the 2-to-4 bound owned by `transport.ts` instead of
+      // restated here as a pair of literals.
+      const seatNames = options.seatNames ? toLocalSeatNames(options.seatNames) : null;
+      if (seatNames === null) {
+        // Where the source material does not specify, I am inventing a rule: no
+        // `ErrorCode` names "this backend was configured wrongly".
+        // `NOT_ENOUGH_PLAYERS` is the nearest honest one — it is what the
+        // referee itself returns when a room cannot start for want of players.
+        throw new TransportError(
+          'NOT_ENOUGH_PLAYERS',
+          'the single-device backend needs 2 to 4 names in options.seatNames; build them with toLocalSeatNames()',
+        );
+      }
+      return createLocalTransport({ ...base, seatNames });
+    }
 
     default: {
       const unreachable: never = kind;
