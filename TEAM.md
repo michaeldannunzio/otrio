@@ -828,3 +828,117 @@ carries none, and the numbers live in `BoardProps.armColors` and `PLAYER_ROLES`.
 
 **Worth a self-check if you have explanatory comments quoting another layer's
 measurements.** Grep your own files for numbers you did not compute.
+
+## 2026-09-24 — Bob
+
+**[FYI] New feature: offline single-device mode. The old team is gone; roster being rebuilt.**
+
+The user asked (2026-09-24) for an offline mode: pass-and-play, 2–4 people on
+one device. Decisions already made — do not relitigate: **pass-and-play only**
+(no AI); **PWA yes** (`vite-plugin-pwa` approved as a new dependency); **no
+auto-save** (the user declined it — do not add it). Hosting for the WS server
+is parked: $0 only, never this machine.
+
+**Every agent ID in `CLAUDE.md` is dead** — the previous session's subagents
+did not survive. New IDs replace the table as agents spawn; until yours is
+listed there, message Bob.
+
+Design, verified in code 2026-09-24: `PeerReferee` (`referee.ts:138`) is
+already driven in-process by the P2P host via `RefereeSend` + `handle()`.
+Offline mode is a third `Transport` (`src/net/localTransport.ts`) that
+instantiates that same referee with one synthetic identity per seat and routes
+`RefereeSend` straight back into its own emitter. Same rules, same referee, no
+second implementation. Hot-seat "who am I" = the active seat's synthetic id
+passed to the existing `deriveLocalView` — no change to the helper.
+
+Lanes: **Homer** — contract (`protocol.ts` / `transport.ts`), lands first.
+**Charles** — PWA, holds the build lock. **Goku** — `localTransport.ts`, after
+Homer posts the contract. **Howard** — UI/store. **Arthur** — UX review of the
+device-handoff moment.
+
+**Nobody pushes.** Vercel auto-deploys `main` to production on every push.
+Bob pushes after green. Commit small and often — a machine reboot is pending
+and kills every agent; only committed work survives it.
+
+## 2026-09-24 — Bob, after Riker's audit
+
+**[ACTION: Homer] `src/net/index.ts` is yours; local mode has no lobby.**
+`createTransport` (`index.ts:126-136`) falls through to WS for any kind that
+is not `'p2p'`, so widening the union alone makes `createTransport('local')`
+compile and dial `:8787`. Exhaustive `switch`, `never` default, `'local'`
+throws `UNSUPPORTED` until Goku lands — same commit. `LocalTransportConfig`
+pins `turnTimeoutMs: 0` — `tick()` auto-plays on deadline. Full list sent
+direct.
+
+**[ACTION: Charles] Your build type-checks Homer's half-edits.** Same tree:
+red under `src/net/` is Homer in flight — wait and retry, never touch. Granted
+**one** `<link rel="apple-touch-icon">` in `index.html`; iOS ignores manifest
+icons for the tile. Assert the three.js chunk is *in* the precache manifest —
+Workbox drops anything over 2 MiB with a warning, not a failure.
+
+**[FYI: Goku, Howard, Arthur — read before you start] Decisions, made by Bob:**
+- **No lobby in local mode.** `createRoom(config)` seats and readies every
+  player from the config (seat 0 = host), returns the sentinel code, leaves the
+  room in `lobby`; the UI calls `startGame()` immediately. Lobby-phase local
+  identity = seat 0's synthetic id; once `room.game !== null`, the active
+  seat's. `joinRoom` rejects. Evidence it is forced: `onStartGame`
+  (`referee.ts:448`) NACKs unless `from === hostPlayerId`; `:454` needs every
+  non-host seat ready; `onJoin` (`:398`) names seats only via `noteName()`.
+- **Goku: no request map.** `referee.ts` has zero `async` / `Promise` /
+  `setTimeout` — every ack and nack is sent synchronously inside `handle()`.
+  Capture the ack in a closure during the call. Do not copy the `pending` Map
+  from `wsTransport.ts:150` / `rtcTransport.ts:559`; that would be a third one.
+- **Howard:** Charles is adding the `apple-touch-icon` line to your
+  `index.html`. Do not re-add or move it.
+
+## 12:55 — Charles — [FYI] PWA landed at 659a3b0; offline shell works, icons are blocked
+
+`vite-plugin-pwa@1.3.0` (dev dep), Workbox `generateSW`. Peer range is
+`vite ^3 || ^4 || ^5 || ^6 || ^7 || ^8`; this tree runs **vite 6.4.3**, so the
+major is supported — checked against the registry before installing, not after.
+Lockfile change is purely additive: 264 packages added, 0 removed, 0 version
+changes to anything already there.
+
+**Precache: 29 entries (28 unique), 1,645,733 bytes = 1.569 MB.** Largest five,
+in bytes: `three` 688,700 / `react` 238,032 / app entry 210,379 /
+`textures/hd/board_albedo.webp` 74,066 / `textures/hd/table_normal.webp`
+73,526. All 17 texture files are in it. (The manifest appears twice at an
+identical revision, so Workbox dedupes it instead of throwing
+`add-to-cache-list-conflicting-entries` — verified in the shipped bundle.)
+
+**Excluded from the service worker.** Source maps (`.map`, 3.9 MB, only ever
+fetched with devtools open). And from the navigation fallback, by explicit
+denylist: **`/ws`, `/signal`, `/api`, `/healthz`, `/health`**. Honest scope,
+since it is smaller than it sounds: Workbox only applies that fallback to
+`mode: 'navigate'` requests and a WebSocket handshake never reaches a service
+worker at all, so **neither transport could have been swallowed mid-game either
+way.** What the denylist buys is those URLs staying reachable once a worker is
+installed, in the one-origin deploy shape and under `npm run preview`.
+
+**`index.html` and `src/` are untouched and need nothing from their owner.**
+`injectRegister: 'auto'` resolves to `'script'` with no virtual-module import
+in source, so the build injects the manifest link and `registerSW.js` itself.
+
+**One convention worth copying.** Workbox's default `globPatterns` is
+`**/*.{js,wasm,css,html}` — it would have shipped an app that loads offline and
+renders an *untextured* board, green build, no error. Its
+`maximumFileSizeToCacheInBytes` fails the same way: over the limit, a file is
+dropped with a console warning and a **zero exit code**. Both are now stated in
+`vite.config.ts` rather than inherited, but the thing that actually protects it
+is an assertion in `.github/workflows/ci.yml` that **fails the build** if
+`assets/three-*.js`, `index.html` or `textures/manifest.json` is missing from
+the generated manifest. Verified in both directions — passes on the real
+`dist/sw.js`, exits 1 on a copy with the `three` entry removed. If you own a
+config whose library default fails silently, a number does not save you; a
+failing build does.
+
+**Blocked, and it is the one thing standing between this and "installable":
+there is no icon artwork anywhere in this repo, and there never has been.** I
+checked the full git history: the only images ever committed are the 16 texture
+webps. `index.html` has linked `/favicon.svg` since the first commit and that
+file has never existed — it 404s in production today. So the manifest ships
+with no `icons`, Chrome will not offer to install without one at >=192px, and
+the `apple-touch-icon` line Bob granted me in `index.html` cannot be written,
+because it would point at a second file that does not exist. Not inventing a
+logo; it is Bob's call and it is in my report. **Howard: nothing for you to do
+— when artwork lands, the one `<link>` is mine to add, per Bob.**
