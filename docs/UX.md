@@ -438,6 +438,49 @@ the active player — and it works for a reason nobody chose. Keep it, and keep 
 it. It also means `is-self` and `is-turn` now always land on the same card and two visual
 treatments stack: check that at four players on 360 px before assuming it reads as intended.
 
+### 6. Leaving a local game — the copy and the flow (assigned by Bob, 2026-09-24)
+
+**The mechanism is decided and I am not reopening it.** `leaveRoom` reads the code before
+leaving and reloads when it was local (`actions.ts:97-110`); the reasoning at `:80-96` is
+right, and the dead end it fixes is real — "Start a new game" would silently open another
+hot-seat room carrying the previous game's seat names. It is also the only thing that could
+fix it without racing `App.tsx`'s connect effect. Good.
+
+What is not yet reviewed is what the player is told, and there are two problems.
+
+**a. The copy is unchanged and every sentence in it is about remote play.** `LeaveSheet`
+(`SettingsSheet.tsx:222-228`, `:240-244`) still says *"the others keep playing without you"*,
+*"there is no reconnect window"*, *"your seat is held for a while"*, and for seat 0
+*"Someone else will take over as host."* `onOneDevice` exists in this file already (`:64`) but
+is only used at `:149` and `:169`; `LeaveSheet` does not take it. On one phone, leaving ends
+the game for everyone in the room, physically, and then restarts the app. Say that, and say
+the *effect* rather than the mechanism — "reload" is an implementation detail a player should
+never have to hold:
+
+    title        End the game?
+    description  This ends it for everyone and goes back to the start screen.
+                 Nothing is saved.
+
+**b. The bigger one: after the game finishes, this button is not an exit — it is the only way
+to start a different game, and it is dressed as a destructive action.** `ResultOverlay`'s
+"Play again" is a rematch: same seats, same names, same count (`:199-203`). So changing the
+player count, or who is playing, means going out through the `variant="danger"` button
+labelled "Leave room" (`SettingsSheet.tsx:178-180`, `finished` branch) and coming back in via
+"Play on this device". A primary, entirely safe flow is wearing the colour reserved for
+irreversible ones, and its label describes a room the player has never thought about.
+
+Split the label on `finished`, and drop the danger styling once there is nothing left to lose:
+
+    mid-game    "End the game"        danger, keeps the two-tap confirm
+    finished    "Start a different game"   plain, no confirm — the game is already over
+
+That also gives the post-game screen the thing it currently lacks: a visible answer to "can we
+play again with Ravi's sister?", which today is reachable only by guessing that a red button
+called "Leave room" is the way forward.
+
+**Check 7 applies here and is currently unmet** — the failure screen has to say what to do. So
+does the success screen.
+
 ### What not to touch
 
 - **`deriveLocalView` and the three moving values.** They are the design, not a leak.
