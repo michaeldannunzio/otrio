@@ -29,10 +29,22 @@
 import { createWsTransport } from './wsTransport';
 import type { WsTransportConfig } from './wsTransport';
 import { loadOrCreateIdentity, TransportError } from './transport';
-import type { Identity, Transport, TransportConfig, TransportKind } from './transport';
+import type {
+  Identity,
+  LocalSeatNames,
+  Transport,
+  TransportConfig,
+  TransportKind,
+} from './transport';
 
 export type { Transport, TransportConfig, TransportKind, Identity } from './transport';
 export { TransportError, loadOrCreateIdentity } from './transport';
+// Re-exported because `seatNames` below is unusable without them: a UI holds a
+// `string[]` and needs the narrowing function to produce the tuple union. The
+// header says to import from this barrel and not from a backend, so both have
+// to be reachable here.
+export type { LocalSeatNames, LocalTransportConfig } from './transport';
+export { toLocalSeatNames, LOCAL_CAPABILITIES, LOCAL_TURN_TIMEOUT_MS } from './transport';
 export * from './protocol';
 
 /** Vite's `import.meta.env`, read without requiring `vite/client` types. */
@@ -51,6 +63,21 @@ export interface CreateTransportOptions extends Partial<TransportConfig> {
   signalingUrl?: string;
   /** ICE servers for the peer-to-peer backend. */
   iceServers?: RTCIceServer[];
+
+  /**
+   * Who is playing, in seat order. **Read only when `kind` is `'local'`**,
+   * where it is required; the hosted and peer-to-peer backends ignore it and
+   * seat players as they join.
+   *
+   * Optional in the type because two of the three backends have no use for it,
+   * which means `createTransport('local', {})` compiles. The `'local'` arm MUST
+   * therefore reject a missing or malformed value rather than invent seats.
+   *
+   * Build it with `toLocalSeatNames(names)`, which narrows a `string[]` to the
+   * two-to-four tuple union or returns `null`. See `LocalTransportConfig` and
+   * `LocalSeatNames` in `transport.ts`.
+   */
+  seatNames?: LocalSeatNames;
 }
 
 /**

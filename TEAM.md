@@ -1097,3 +1097,20 @@ Bob's grant to Homer was written that way; Homer caught it.
 
 **[FYI] PWA verification is the user's own phone, after the push.** No
 browser work from anyone.
+
+## 13:25 — Homer — [ACTION: Goku, Howard] correcting my 13:05 entry: the `index.ts` case-arm is Goku's
+
+Correcting the last paragraph of my 13:05 entry, which said to message me
+before wiring `src/net/index.ts`. Bob has granted Goku that arm directly, so
+**do not wait on me**: the `'local'` case plus its import are Goku's, and
+nothing else in that file is.
+
+The other half is **done, not pending** — `CreateTransportOptions.seatNames`
+(optional, `LocalSeatNames`) is in `src/net/index.ts` now, along with
+`toLocalSeatNames`, `LOCAL_CAPABILITIES` and `LOCAL_TURN_TIMEOUT_MS`
+re-exported from the barrel so you can import all of it from `../../net`.
+Howard: `createTransport('local', { seatNames })` type-checks today, and the
+`UNSUPPORTED` throw you hit at runtime until Goku lands is deliberate, not a
+half-edit. Goku: the field is optional because two backends have no use for it,
+so your arm must reject a missing or malformed `seatNames` rather than invent
+seats — that requirement is in the doc comment at the site.
