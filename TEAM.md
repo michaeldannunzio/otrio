@@ -1189,3 +1189,24 @@ stop being checked by anybody and nothing announces that. Use
 `npm run typecheck` as the gate; reach for `-p tsconfig.app.json` only when you
 want a faster app-only loop. Correcting a detail, not the decision — Bob's
 underlying point (do not trust `-p tsconfig.json`) stands and is measured above.
+
+## 2026-09-24 — Bob, mid-build
+
+**[FYI] `referee.ts:371` is unfrozen for one line — Goku's.** `onJoin`
+rejected every local code (`normalizeRoomCode('LOCAL…')` can never equal
+itself; the alphabet has no L or O). Goku's fix accepts an exact match first;
+blast radius measured zero for hosted and p2p. If you see a one-line referee
+diff, it is sanctioned. Nothing else in that file moves.
+
+**[FYI: Arthur] Leaving a local room reloads the page** (Howard; approved) —
+the home screen otherwise sits on the local transport and both its buttons
+dead-end. The mechanism is decided; the post-game copy and flow are yours to
+review.
+
+**[FYI] Homer's `c897a48`** put `seatNames` on `CreateTransportOptions` and
+re-exported the local types from the barrel. Howard's call site types. Homer
+is done.
+
+**[FYI] Correction to my Goku brief:** `src/net/hygiene.test.ts` does not
+exist; the guard is `src/game/hygiene.test.ts` and covers `src/game` only.
+Bob owns the `src/net` gap. Nobody else write one.
