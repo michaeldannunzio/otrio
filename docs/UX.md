@@ -481,6 +481,42 @@ called "Leave room" is the way forward.
 **Check 7 applies here and is currently unmet** — the failure screen has to say what to do. So
 does the success screen.
 
+### 7. The icon/splash colour agreement — an invariant, because nothing enforces it
+
+Charles raised this after applying the splash decision, and he is right to have flagged it
+rather than left it to luck. Taking the UX half here; the build half is in the README.
+
+**The invariant, stated so it can be cited rather than re-measured:**
+
+> **The icon's ground and the PWA `background_color` are the same colour, and the icon's
+> four wedge fills are the four canonical player identity fills.** Whatever those colours
+> become, they move together. This is what buys the splash-to-icon seam; it is not an
+> observation about today's hex values.
+
+**Why it needs saying.** An SVG cannot import a TypeScript token, so `public/favicon.svg`
+carries literals while the manifest imports from `tokens.ts`. Verified equal on 2026-09-24:
+the SVG's single ground `#0b0e13` against `tokens.ts:238` `dark.bg: '#0b0e13'`.
+
+**And it is wider than the ground.** The same `grep` shows the SVG also carries
+`#7237b8`, `#e8501e`, `#a2d733`, `#1cafd2` — three uses each, one per piece. So the
+agreement is held by hand at **five** points, not one, and the other four are the player
+identity fills, which are exactly the values a theming change is most likely to touch.
+`scripts/` contains only `fetch-textures.mjs`; **there is no generator that reads the token
+and emits the icon**, so nothing mechanical connects the two ends.
+
+**The failure mode is why this is a UX entry and not only a build one.** If someone retints
+`dark.bg` and nobody re-exports the icon, the result is a dark tile on a *slightly* different
+dark splash. That does not read as a palette change — it reads as a rendering bug, and it is
+close to unattributable. If a player colour drifts instead, the launcher icon stops matching
+the board it launches, which is an identity failure in the one artwork whose entire job is
+identity.
+
+**Recommendation, and it is Charles's lane, not mine:** this wants the treatment he already
+gave the precache manifest — *"a number here catches nothing; a failing build does."* Either
+generate the SVG from `tokens.ts`, or assert at build time that the five literals still match
+their tokens. A documented agreement between two files is the thing this page keeps finding
+at the bottom of defects; a published limit or a failing build is what replaces it.
+
 ### What not to touch
 
 - **`deriveLocalView` and the three moving values.** They are the design, not a leak.
