@@ -1364,3 +1364,103 @@ migrated game's `firstSlot` differs from the original's. Probably benign,
 because the turn index is recovered by matching seat and due colours rather than
 from `firstSlot` — but neither of us traced it, it only affects P2P host
 migration, and it is outside my brief. Recorded so it is not lost.
+
+## 2026-09-24 — Bob, after Arthur's review
+
+**[FYI] Arthur's review is complete (`5c190e4`, `758398a`, `b6b385e`).** Icon
+**approved as drawn** — Charles is unblocked. Splash: `background_color` →
+the icon's ground `#0b0e13`, `theme_color` stays light, with a comment at
+the site saying the two differ on purpose (Charles; sent direct). Board
+pinned to `SOUTH` — Howard's `seat` prop. Badge: replace the whole "This
+room" section, not the string (Howard). Leave flow: the reload stands; split
+the button on `finished` — after a game it is the only route to different
+players and it wears `danger` (Howard). Two `LocalSetup.tsx` defects and
+eleven further one-device sites sent to Howard direct.
+
+**[FYI] One item unresolvable from a read, for the user's phone test:** a
+"Connecting to the game…" strip may flash on starting a local game
+(`connect()` emits `connecting` then `connected` back to back). Goku is
+asked to emit only `connected` if the status machine allows it.
+
+## 2026-09-24 — Bob, correction
+
+**[FYI] Correcting Charles's `[ACTION: Linus, when you are live]` above:
+Linus is not live and will not be this feature. Bob holds it.** The
+favicon-ground / `COLORS.dark.bg` invariant is filed in the shop log as a
+follow-up to mechanise (a test that reads the SVG and compares to the token).
+Nobody wait on Linus; nobody write the test now.
+
+**[ACTION: Charles] Authorised: assert the five icon literals against
+`tokens.ts` — one vitest file, granted at `src/styles/iconTokens.test.ts`**
+(Linus's directory; he is not live; the grant is that file only). No
+generator, no new dependency. Does not block the push — if Howard lands
+first, it goes in the next one. Sent direct. This supersedes my "nobody
+write the test now" two entries up.
+
+## 14:05 — Howard — [FYI] offline mode's player-facing half is in: `8d2dd3a`, `be2cc0c`, `185f623`
+
+Three commits, `src/ui/**` + `src/store/**` + `src/main.tsx` only. **Nothing
+rendered — browser testing is off**, so every visual claim below is
+written-and-reasoned. `tsc --noEmit -p tsconfig.app.json` executed clean after
+each. There are no tests under `src/store` or `src/ui` to run; `vitest run
+src/store src/ui` matches nothing, which is a real gap and not a pass.
+
+**The route.** Home screen gains a third button, "Play on this device", beside
+create and join. It sets `entry: 'local'` and reveals `LocalSetup` inline — a
+new `EntryView` member, a sibling of `'create'`, not a mode flag.
+
+**New screens.** `src/ui/screens/LocalSetup.tsx` (count 2/3/4, a name per seat
+defaulted to that seat's colour, Start) and `src/ui/screens/PassDevice.tsx` (the
+handoff). `LobbyScreen` is not reached in local mode.
+
+**Store fields others may care about:**
+
+- `useUi().deviceHeldBy: Seat | null` — which seat physically holds the phone.
+  `null` outside a local game and before the first turn settles.
+- `handoffPendingFor(room, deviceHeldBy): Seat | null` in `selectors.ts` — the
+  seat the device must be handed to, **derived**, not stored. Read this rather
+  than inventing a second "is a handoff pending" flag.
+- `startLocalGame(names)` and `takeDevice()` in `actions.ts`.
+- `toWireError` is now exported from `transportStore.ts` (`startLocalGame` fails
+  before a transport exists, so it cannot go through `runCommand`).
+- `OFFLINE_CAPABILITIES` in `transportStore.ts` is now `NO_TRANSPORT_CAPABILITIES`.
+  It describes *no game at all* and was sitting next to a real offline backend
+  describing the opposite. Nothing outside `src/net/` reads `capabilities.kind`
+  — grepped 2026-09-24 — which is the only reason its placeholder `'hosted'` is
+  harmless.
+
+**What Arthur signed off** (his positions are `docs/UX.md` "Offline mode";
+this is what landed against them): the pass gate, bottom third, no timer,
+enforced in `placePiece`; no gate before the first turn; no "you're done" beat;
+no skip setting; assertive announcement that *replaces* the banner's. Board
+**pinned to `SOUTH`**. "This room" section **replaced**, not reworded. Leave
+button split on `finished`. `LocalSetup`'s shape approved as built, and its
+default of 2 confirmed. He pushed back on three of my stated reasons for pinning
+the board — it is not a camera swing, it forces no re-fit, and
+`prefers-reduced-motion` would not catch it — and he was right on all three; the
+answer was unchanged but the reasoning in the code is now his, not mine.
+
+**[ACTION: nobody, but do not undo it]** Two places now depend on the board
+being pinned to `SOUTH` specifically, because `boardYawForSeat(SOUTH)` is
+exactly `0`: `ColourReveal`'s arm diagram, and the "top / right / bottom / left"
+words in `LocalSetup`'s field labels. **Nobody designed that agreement** —
+Arthur found it by computing both ends. Pin anywhere else and both are silently
+wrong and nothing fails. Written at all three sites.
+
+**Two published facts I relied on, with their sources**, so anyone can check
+them rather than take my word: `quality` never changes on this backend, so the
+latency line would read "Connection quality unknown" forever (Goku, executed);
+and `RoomState.rematch` is never observable as a pending offer, so
+`ResultOverlay`'s "1 of 2 ready" branches are **unreachable** locally rather
+than wrong — Arthur read them as broken, Goku's execution showed the existing
+`!offered` branch already renders the plain "Play again" he asked for, and the
+correct action was therefore no edit. Recording that because a silent non-edit
+is indistinguishable from an oversight.
+
+**Not done, and left for Bob to route** — all from Arthur's §5 sweep, none of
+them in my brief: `PlayerRail`'s per-card `ConnectionDot` (his "noise", four
+identical permanently-online dots in the component that must fit four cards into
+360 px), and making `LobbyScreen` **structurally** unreachable rather than
+conditionally silent. `RoomInfoSheet`'s "Anyone with this can join" is now
+unreachable in local mode and Arthur's advice was explicitly to leave it alone
+rather than branch for a path nobody can take.
