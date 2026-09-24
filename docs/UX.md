@@ -93,15 +93,35 @@ same size, same weight, and only one of them is readable, because one has a
 
 **Rule: any HUD text over the canvas gets a surface behind it, or it does not go there.**
 
-**Confirmed by frame, 2026-09-24 — previously an inference from the CSS.** This one survives the
-staleness above: `.o-sizes__hint` and `.o-sizes__rule` are unchanged since, and the defect is a
-missing background, which no later commit touched. Visible in both
-`10-device-small-phone-360.png` and `09-board-four-rings.png`: *"Placing Green. Pick a size,
-then a space."* renders as grey, plate-less text lying across the board edge and the table, and
-it is genuinely hard to read. Directly beneath it, *"You must switch colours every turn, so only
-green can move now."* sits in a white `--surface-2` pill and is perfectly legible. **Same size,
-same weight, one readable.** It is one pill in `src/ui/ui.css` and it is live in both online and
-offline modes. Owner: Howard.
+**WITHDRAWN 2026-09-24, and this is the worst of my errors today — read it before you trust
+anything else on this page.** I reported this as "confirmed by pixels, live in both modes" and
+sent it to Bob as a live defect. **It is fixed, and it was fixed before I looked.**
+
+Today `.o-sizes__hint` and `.o-sizes__rule` **share one rule** carrying
+`background-color: var(--surface-2)`, `border-radius: var(--radius-pill)` and
+`color: var(--text-primary)`, under a comment block that documents this exact fix and names
+`.o-sizes__hint` as "the case that proved it".
+
+And at the frame's own commit (`7ba926f`) that shared rule read, in full:
+
+    .o-sizes__hint,
+    .o-sizes__rule { margin: 0; text-align: center; font-size: var(--text-2xs);
+                     color: var(--text-secondary); }
+
+**Neither had a pill.** So the contrast I described seeing between the two — *"same size, same
+weight, one readable"* — **cannot have come from this rule**, in that frame, in either direction.
+I looked at a picture, saw what this page's check 2 told me to expect, and called it
+confirmation. I never opened the stylesheet at that commit, which is the one thing that would
+have stopped me.
+
+**That is different in kind from the day's other errors, and worse.** The rest were arithmetic —
+a wrong model, an unchecked causal step. This one was *confirmation bias against a stale
+artefact*: the frame did not mislead me, my own checklist did, because I went looking for its
+example and an image is compliant enough to seem to supply one. **An old screenshot will show you
+whatever your prior already believes.**
+
+Check 2's rule stands and the HUD TEXT RULE comment in `ui.css` is now its best statement. What
+does not stand is this page citing it as a live defect. Verified fixed 2026-09-24.
 
 ### 3. Does it work in 360 px of width and 640 px of height?
 
