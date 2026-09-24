@@ -699,6 +699,22 @@ it was committed, and nothing else.** My own lesson from an hour before — "che
 answer is already committed" — was right and dangerously incomplete: check whether the committed
 answer is still true.
 
+**But staleness is per-component, not per-frame — and that is the more useful rule.** Verified by
+extracting the same CSS blocks at three revisions: `.o-sizes__group` and `.o-size`'s
+`flex: 1 1 0` / `min-height: calc(var(--hit-min) + var(--space-4))` are **byte-identical** at
+`7ba926f` (the frame), at `6ce9dd7` (the rail rewrite) and at `HEAD`. So the size picker in that
+photograph **is** the component that ships today, while the rail beside it is not.
+
+That means the frame was never uniformly stale, and the part that survived is exactly the part
+carrying the argument that survived — those visibly cramped Small / Medium / Large buttons are
+current. So the rule is not "distrust old frames", which would have thrown away the good evidence
+along with the bad. It is:
+
+> **Before citing a frame, `git show <frame-commit>:<file>` the component you are reading and
+> diff it against `HEAD`. Cite the parts that match; discard the parts that do not.**
+
+One command, per component, and it would have caught all of this an hour earlier.
+
 ### What not to touch
 
 - **`deriveLocalView` and the three moving values.** They are the design, not a leak.
