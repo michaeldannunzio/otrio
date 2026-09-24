@@ -367,9 +367,10 @@ declined auto-save (Bob, 2026-09-24) and nothing persists room state (`grep -rn 
 src/store src/ui` on 2026-09-24: **no hits**; only `prefsStore` persists, and only preferences).
 A four-player game abandoned to a phone call is gone, and nothing on screen says so.
 
-**Not verified by execution:** "nothing is saved" is read from the *absence* of any storage call,
-not from watching a game die. If `localTransport.ts` lands any persistence, this line becomes
-false and I want to be told.
+**Since written, confirmed at the source:** `localTransport.ts:89-93` states that seats 1..n-1
+are minted fresh and **never persisted**. Combined with the grep above, "nothing is saved" is
+now read from a positive claim at the owning site rather than only from an absence. Still not
+watched dying in a real browser.
 
 ### 4. Splash colour — change one value, and it is not about themes
 
@@ -408,7 +409,7 @@ flags across `src/ui/**` and `src/store/**` on 2026-09-24. **Broken** = a player
 | `HomeScreen.tsx:129` | Tagline: *"For two to four people, **one phone each**."* The first sentence anyone reads, false for half the product — and as of 13:17 it sits **six lines above a button that says "Play on this device"** (`:160-162`), so the screen now contradicts itself in one viewport. Suggest: *"…For two to four people, on one phone or on four."* | broken |
 | `TurnBanner.tsx:58,73` | "Your turn", every turn, no name. See 1. | broken |
 | `SettingsSheet.tsx:69-75` | "Your name" field. `setName` rejects `UNSUPPORTED` (Homer), but `prefs.setName` still updates the local store — so the field **appears to work and changes no seat name**. Silent success is the worst failure shape there is. Do not render it; seat names come from `seatNames` and change only by starting a new game. | broken |
-| `SettingsSheet.tsx:149-153` | Latency: *"Connection quality unknown"* — nothing pings, `rttMs` stays `null` (`initialQuality()`, `transport.ts:363`), `gradeQuality(null)` → `'unknown'` (`:355`), and the sentence reads as a link being measured badly rather than as no link at all. **Already fixed** by Howard at 13:18, gated on `isLocalRoomCode`. Verified. | fixed |
+| `SettingsSheet.tsx:149-153` | Latency: *"Connection quality unknown"* — nothing pings, `rttMs` stays `null` (`initialQuality()`, `transport.ts:363`), `gradeQuality(null)` → `'unknown'` (`:355`), and the sentence reads as a link being measured badly rather than as no link at all. **Already fixed** by Howard at 13:18, gated on `isLocalRoomCode`. Verified — and independently confirmed at the other end: `localTransport.ts:110-124` holds `initialQuality()` for the life of the transport and says so, having rejected `0` because it would read as "excellent", a measurement nobody took. | fixed |
 | `SettingsSheet.tsx:169-173` | "Show the room code" — `joinRoom` rejects every input (Homer), and `isPlausibleRoomCode` is `false` for a local code, so the offer cannot work. **Already fixed** at 13:18. Verified. **But `RoomInfoSheet:194-208` still carries *"Anyone with this can join, if there is a free seat."*** — unreachable in local mode now, so harmless, and worth leaving exactly as it is rather than adding a branch for a path nobody can take. | fixed |
 | `SettingsSheet.tsx:222-228`, `:240-244` (`LeaveSheet`) | Leave copy: *"the others keep playing without you"*, *"there is no reconnect window"*, *"your seat is held for a while"*, and for seat 0 *"Someone else will take over as host."* On one phone, leaving ends the game for everyone in the room, physically. Say that. | broken |
 | `ResultOverlay.tsx:86,108` | `isWinner` compares to `selfId`, which at `finished` is seat 0 (Bob). **Seat 0 wins → "You win", no name. Any other seat → "<name> wins", correct.** A one-in-N inconsistency on the most photographed screen in the product. Always name the winner. | broken |
@@ -417,7 +418,14 @@ flags across `src/ui/**` and `src/store/**` on 2026-09-24. **Broken** = a player
 | `LobbyScreen.tsx` (all) | Not reached — Bob's "no lobby in local mode", the UI calls `startGame()` immediately. Make it **structurally** unreachable rather than conditionally silent; every line in it is wrong here. | — |
 | `MoveLog.tsx:74-80` | *"Moves marked ~ were recovered after a reconnection."* Gated on `hasInferred`, which only a snapshot gap sets (`moveLogStore.ts:160`), and there are no gaps. **No change needed** — said out loud so nobody "fixes" it. | none |
 | `useNarration.ts:40-95` | `playerJoined` / `playerLeft` / `playerReconnected` / `hostChanged`. None can fire. **No change needed.** | none |
-| `useNarration.ts:155-159`, `copy.ts:36,46,257-261`, `ConnectionBanner.tsx` | *"Connection lost. Reconnecting."*, *"This device is offline. Reconnect to Wi-Fi or mobile data"*, *"your seat is being held"*. Correct only if `localTransport` never leaves `connected`. **Confirm with Goku.** If it can emit `reconnecting` or `failed`, this needs a local variant — "this device is offline" on an *offline-mode* game is the worst sentence in the file. | ask Goku |
+| `useNarration.ts:155-159`, `copy.ts:36,46,257-261`, `ConnectionBanner.tsx` | *"Connection lost. Reconnecting."*, *"This device is offline. Reconnect to Wi-Fi or mobile data"*, *"your seat is being held"*. I had this as "ask Goku"; `localTransport.ts` landed, so I checked instead. **Every `setStatus` call site is `'connecting'`, `'connected'` or `'closed'` (`:440,441,471,472,698`) — `reconnecting` and `failed` are unreachable.** So none of this copy can render. **No change needed.** | none |
+
+**One thing to watch, not yet a defect.** `connect()` pushes `'connecting'` and
+`'connected'` onto the same queue back to back (`localTransport.ts:440-441`, and again at
+`:471-472`), and `describeLink('connecting')` has `banner: true` — *"Connecting to the game…"*.
+Whether that ever paints depends on whether both events flush before React renders, which I
+have **not** run and cannot settle from a read. If a "Connecting to the game…" strip flashes
+on starting a local game, that is where it comes from.
 
 **Nothing in the UI reads `hostMigration` at all** — checked. `LeaveSheet` branches on `isHost`
 instead, and that is where the false sentence actually appears. A capability nobody reads is not
