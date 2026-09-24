@@ -8,7 +8,9 @@ three sizes, and there are three different ways to make a line. Full rules,
 including the ones people usually get wrong, are in [`docs/RULES.md`](docs/RULES.md).
 
 Everyone opens the same URL on their own phone and plays on their own screen.
-There is no app to install and no account to make.
+There is no app store to go through and no account to make. The page will save
+itself to a home screen and open again with no network if you want that — see
+[Offline and installing](#offline-and-installing).
 
 ---
 
@@ -275,6 +277,101 @@ to only one of them produces a project that typechecks and 404s, or vice versa.
 
 ---
 
+## Offline and installing
+
+The production build ships a service worker. A phone that has loaded the site
+once can load it again with no network at all and get the home screen with
+every asset already on the device.
+
+This is `vite-plugin-pwa` (`generateSW` / Workbox) configured in
+`vite.config.ts`. It is the only dependency added for it.
+
+**It does not make the *game* playable offline on its own.** It guarantees the
+code and assets are present; playing without a network is
+`src/net/localTransport.ts`, which is a separate piece of work.
+
+**Nothing was added to `index.html` or `src/`.** `injectRegister: 'auto'`
+resolves to `'script'` when no source file imports the plugin's virtual module,
+and the build-time `transformIndexHtml` then injects both the
+`<link rel="manifest">` and `<script src="/registerSW.js">` before `</head>`.
+If you ever `import` from `virtual:pwa-register` in application code, that
+auto-injection stops and you own the registration by hand.
+
+**What is precached.** Workbox's default `globPatterns` is
+`**/*.{js,wasm,css,html}`, which for this app would produce something worse
+than no offline mode: it loads, and then renders an untextured board, because
+every texture under `public/textures` is `.webp` and its index is `.json`. The
+pattern in `vite.config.ts` is therefore set explicitly. Source maps are
+excluded on purpose — 3.9 MB of them, fetched only when devtools are open,
+which is never the case with no network.
+
+**The one failure mode worth knowing about** is that Workbox silently drops any
+single file over `maximumFileSizeToCacheInBytes` — a console warning and a zero
+exit code, which produces a build that reports success, installs on a phone,
+goes offline and has no 3D engine. The default is 2 MiB and the `three` chunk
+is 688,700 bytes, the only file within an order of magnitude of that line.
+
+Two things guard it, and the second is the one that does the work:
+`PRECACHE_MAX_FILE_BYTES` in `vite.config.ts` states the limit rather than
+inheriting it, deliberately high at ~6.4× the largest chunk so that growth
+never turns into a silent drop; and the `Report bundle sizes` step in
+`.github/workflows/ci.yml` prints the precache total and **fails the build** if
+`assets/three-*.js`, `index.html` or `textures/manifest.json` is not in the
+generated manifest. A threshold catches nothing on its own — the assertion is
+what turns a silent drop into a red build. Verified both ways on 2026-09-24:
+it passes against the real `dist/sw.js`, and exits non-zero against a copy with
+the `three` entry removed.
+
+**Updates are automatic** (`registerType: 'autoUpdate'` → Workbox
+`skipWaiting` + `clientsClaim`). A deploy replaces the cached shell on the next
+visit with no "new version available" prompt to design and localise. The cost,
+recorded because it is easy to rediscover as a mystery: the new worker takes
+over tabs that are already open, and this app code-splits. A tab loaded *before*
+a deploy that lazy-loads a chunk *after* it asks for a hash the new precache no
+longer has and the host no longer serves. The window is one deploy wide and a
+reload fixes it.
+
+**The navigation fallback has an explicit denylist.** Unknown paths are served
+the cached `index.html` so `/room/ABCD` works offline, except for the paths the
+Node host owns: `/ws`, `/signal`, `/api`, `/healthz` and `/health`. These matter
+in the one-container / one-origin shape (`Dockerfile`, `fly.toml`,
+`render.yaml`, `railway.toml`) and under `npm run preview`, where the app and
+the server share an origin.
+
+Worth stating exactly how small the risk was, so nobody re-derives it in a
+panic: Workbox only applies that fallback to requests whose mode is `navigate`,
+and a WebSocket handshake is not a fetch and never reaches a service worker at
+all — so a game socket could not have been swallowed mid-game either way. What
+the denylist actually buys is those URLs staying reachable from the address bar
+once a worker is installed, and cover for any future non-WebSocket `GET` under
+`/api`.
+
+**There are no icons in the manifest, and that is a gap, not an oversight.**
+`public/` contains textures and nothing else: no logo, no favicon (the
+`/favicon.svg` that `index.html` links has never existed in this repo), no
+brand source anywhere outside `node_modules`. **Chrome will not offer to
+install a PWA without an icon of at least 192px, so the app is not yet
+installable on Android.** iOS "Add to Home Screen" still works, with a
+screenshot for a tile — and note that iOS ignores manifest icons entirely for
+that tile; it reads `<link rel="apple-touch-icon" sizes="180x180" href="…">`
+from `index.html` and nothing else.
+
+Adding artwork is a brand decision, not a build one. What is deliberately *not*
+here is a `<link>` pointing at an icon file that does not exist: this repo
+already carries one of those (`/favicon.svg`, linked since the first commit,
+never added) and it fails as a silent 404 rather than an error. When a source
+mark lands in `public/`, three things go in together: 192 / 512 / maskable
+entries in the `manifest` block of `vite.config.ts`, a 180×180
+`apple-touch-icon` PNG, and the one `<link>` in `index.html` that points at it.
+
+One more known cost: a web manifest colour cannot be theme-aware, so
+`theme_color` / `background_color` follow the same single light value
+`index.html` already picked for its static `<meta name="theme-color">`. A
+dark-mode user gets a light splash frame before first paint. There is no fix at
+this layer.
+
+---
+
 ## Linting and formatting
 
 `eslint.config.js` is not a generic preset. Every rule it turns on or off maps
@@ -352,6 +449,26 @@ stale within the hour. A verification note without a timestamp is worth very
 little.
 
 > ### Current state: green
+>
+> As of **2026-09-24 12:50**, `tsc -b --noEmit --force` reports **0 errors**,
+> `npm run build` exits 0, and `npm test` is **165/165 in 6 files**. Run on a
+> tree that also carried another author's uncommitted `src/net/protocol.ts`
+> work, so treat it as "green including that", not "green without it".
+>
+> Service worker, same run: **29 precache entries (28 unique — the manifest is
+> listed twice, at an identical revision, so Workbox dedupes it rather than
+> throwing `add-to-cache-list-conflicting-entries`), 1,645,733 bytes
+> (1.569 MB)**. Largest five, in bytes: `three` 688,700, `react` 238,032, app
+> entry 210,379, `textures/hd/board_albedo.webp` 74,066,
+> `textures/hd/table_normal.webp` 73,526. All 17 texture files are in it, and
+> `assets/three-CoY_PLFB.js` was grepped out of `dist/sw.js` by name.
+>
+> **Not verified:** nobody has opened this in a browser, installed it, or put a
+> device in airplane mode. Everything above is build output and emitted-file
+> inspection.
+>
+> The block below is the older snapshot, kept because its chunk table and
+> reasoning are still the reference:
 >
 > As of **2026-09-16 00:45**, `npm run typecheck` reports **0 errors**,
 > `npm run build` exits 0, and `npm test` is **165/165**.

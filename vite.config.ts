@@ -1,12 +1,32 @@
 /// <reference types="node" />
 import { defineConfig, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+/* The web manifest needs the same background colour the page paints. Imported
+   rather than retyped: `#e8ecf3` is already written in index.html, tokens.css,
+   tokens.ts and src/styles/README.md, and a manifest that quietly disagrees
+   with the app shows the wrong splash screen with nothing to catch it.
+   tokens.ts is a pure data module with no imports - if that ever stops being
+   true this config fails at build time, which is the failure we want. */
+import { COLORS } from './src/styles/tokens';
+
 const root = fileURLToPath(new URL('.', import.meta.url));
 const r = (p: string) => resolve(root, p);
+
+/* Absolute base, not './'. The deployed hosts below all rewrite unknown
+   paths to index.html, so the page can be served from a nested URL like
+   /room/ABCD - and a relative base would resolve ./assets/* against /room/
+   and 404. If you ever deploy under a sub-path instead, set this to that
+   sub-path rather than switching to './'.
+
+   Hoisted to a const because the web manifest's `start_url` / `scope` / `id`
+   must track it. A manifest whose start_url is '/' under a '/otrio/' base
+   installs an app that opens on a 404. */
+const BASE = '/';
 
 /* ------------------------------------------------------------------ *
  * Path aliases
@@ -69,17 +89,142 @@ function devHttps(): ServerOptions['https'] {
    CORS or mixed-content surprises when the dev server is on https. */
 const WS_TARGET = process.env.OTRIO_SERVER_URL ?? 'http://127.0.0.1:8787';
 
+/* Ceiling on a single precached file.
+ *
+ * Workbox drops anything larger than this from the precache with a console
+ * warning and a zero exit code. That failure is the bad kind: a build that
+ * reports success, installs on a phone, goes offline, and has no 3D engine.
+ * The default is 2 MiB and the `three` chunk - 688,700 bytes / 0.657 MiB on
+ * 2026-09-24 - is the only file within an order of magnitude of it.
+ *
+ * Set high on purpose, at ~6.4x the largest chunk today. Tightening it would
+ * convert growth into a silent drop, which is the thing being prevented. The
+ * guard against bloat is the precache report in .github/workflows/ci.yml,
+ * which prints the total and FAILS if the three chunk is not in the manifest.
+ * A number here catches nothing; a failing build does.
+ */
+const PRECACHE_MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+/* ------------------------------------------------------------------ *
+ * Installable / offline shell (PWA)
+ *
+ * What this buys: a phone that has opened the site once can open it
+ * again with no network and reach the home screen with every asset it
+ * needs already on the device. It does NOT by itself make the *game*
+ * playable offline - that is `src/net/localTransport.ts`, a separate
+ * lane. This layer only guarantees the code and assets are present.
+ *
+ * Nothing here requires a line in index.html or src/. `injectRegister:
+ * 'auto'` resolves to 'script' when no source file imports the plugin's
+ * virtual module (verified in the installed plugin, dist/index.js:253),
+ * and the build-time transformIndexHtml then injects both the
+ * <link rel="manifest"> and <script src="/registerSW.js"> before
+ * </head>. index.html stays owned by the UI lane and untouched.
+ * ------------------------------------------------------------------ */
+function pwa() {
+  return VitePWA({
+    /* autoUpdate: a deploy replaces the cached shell on the next visit with
+       no "new version available" prompt to build, design and localise. With
+       injectRegister 'auto' the plugin also turns on skipWaiting +
+       clientsClaim (dist/index.js:874).
+
+       The cost, recorded because it is easy to rediscover as a mystery bug:
+       the new worker takes over a tab that is already open, and this app
+       code-splits Scene / wsTransport / rtcTransport. A tab that was loaded
+       before a deploy and lazy-loads a chunk after it asks for a hash that
+       the new precache no longer has and the host no longer serves. The
+       window is one deploy wide and a reload fixes it. The alternative
+       (prompt-on-update) trades that for a UI nobody has designed. */
+    registerType: 'autoUpdate',
+    injectRegister: 'auto',
+
+    manifest: {
+      name: 'Otrio',
+      short_name: 'Otrio',
+      description: 'Otrio in 3D for two to four players, on one device or four.',
+      /* All three track BASE - see the const. `id` is pinned so that changing
+         start_url later updates the installed app instead of installing a
+         second one beside it. */
+      id: BASE,
+      start_url: BASE,
+      scope: BASE,
+      display: 'standalone',
+      /* Deliberately no `orientation`: the board is laid out for portrait and
+         landscape at every breakpoint, so locking it would remove a mode that
+         works. */
+
+      /* A manifest colour cannot be theme-aware - there is no media query
+         here - so this follows the choice index.html already made for its
+         single static <meta name="theme-color">: the light background. A dark
+         mode user therefore gets a light splash frame before first paint.
+         That is a real, visible cost with no fix at this layer; it is flagged
+         for UX rather than hidden. */
+      theme_color: COLORS.light.bg,
+      background_color: COLORS.light.bg,
+
+      /* NO `icons`, and that is a deliberate gap, not an oversight.
+         Checked public/ on 2026-09-24: it holds textures and nothing else.
+         There is no logo, no favicon (index.html's /favicon.svg has never
+         existed in this repo) and no brand source anywhere outside
+         node_modules. Chrome will not offer to install a PWA without a
+         >=192px icon, so THIS MANIFEST IS NOT YET INSTALLABLE ON ANDROID -
+         iOS "Add to Home Screen" still works, with a screenshot for an icon.
+         Inventing a logo is a brand decision, not a build one. The moment an
+         icon source lands in public/, add 192 / 512 / maskable here. */
+    },
+
+    workbox: {
+      /* Workbox's default is `**\/*.{js,wasm,css,html}`, which would ship an
+         app that loads offline and then renders an untextured board: every
+         texture under public/textures is .webp and its index is .json.
+         Extensions present in dist/, checked 2026-09-24: js, css, html, webp,
+         json, and .map. `svg` is listed for the favicon index.html already
+         asks for; `webmanifest` for the manifest itself.
+
+         .map is excluded on purpose - 3.9 MB of source maps, fetched only
+         when devtools are open, which never happens with no network. */
+      globPatterns: ['**/*.{js,css,html,webp,json,svg,webmanifest}'],
+
+      /* See the const for why this is stated rather than inherited. */
+      maximumFileSizeToCacheInBytes: PRECACHE_MAX_FILE_BYTES,
+
+      /* Serve the SPA shell for unknown paths so /room/ABCD works offline,
+         but not for the paths the Node host owns. In the one-container /
+         one-origin deployment shape (Dockerfile, fly.toml, render.yaml,
+         railway.toml) and under `vite preview`, the app and the server share
+         an origin, so these are same-origin URLs sitting inside the worker's
+         scope.
+
+         Honest scope of the risk, since it is smaller than it looks: workbox
+         only applies this fallback to requests with mode 'navigate', and a
+         WebSocket handshake is not a fetch and never reaches a service worker
+         at all - so /ws and /signal could not have been swallowed mid-game
+         either way. What the denylist actually prevents is those URLs
+         becoming unreachable from the address bar, and any future non-WS GET
+         under /api, once the worker is installed. Cheap, and the failure it
+         prevents is silent. */
+      navigateFallback: 'index.html',
+      navigateFallbackDenylist: [
+        /^\/ws(?:\/|$)/, // game socket - server/src/index.ts
+        /^\/signal(?:\/|$)/, // WebRTC signalling relay - server/src/signal.ts
+        /^\/api(?:\/|$)/, // proxied to WS_TARGET in dev and preview
+        /^\/healthz?$/, // platform health checks: /healthz and /health
+      ],
+
+      /* No `runtimeCaching`. Everything the shell needs is precached above,
+         and the two transports are sockets, which a worker cannot cache. An
+         entry here would only add a stale-data path nobody asked for. */
+    },
+  });
+}
+
 export default defineConfig(({ command }) => ({
   root,
-  /* Absolute base, not './'. The deployed hosts below all rewrite unknown
-     paths to index.html, so the page can be served from a nested URL like
-     /room/ABCD - and a relative base would resolve ./assets/* against /room/
-     and 404. If you ever deploy under a sub-path instead, set this to that
-     sub-path rather than switching to './'. */
-  base: '/',
+  /* See BASE above for why this is absolute rather than './'. */
+  base: BASE,
   resolve: { alias },
 
-  plugins: [react()],
+  plugins: [react(), pwa()],
 
   /* Formats Vite does not recognise out of the box but that a 3D game
      payload is full of. Without this they are treated as modules and the

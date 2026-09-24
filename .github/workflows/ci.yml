@@ -67,12 +67,42 @@ jobs:
       # Surfaces chunk sizes in the job log. The three.js chunk is expected to
       # be large (~600kB raw); a sudden jump in the *app* chunk is the thing
       # worth noticing, because that is what every phone re-downloads.
+      #
+      # The precache line matters for a different reason: it is what a phone
+      # downloads and stores *before* it can work offline, and it grows
+      # silently whenever anyone adds a file to public/. It was 1.57 MB over 29
+      # entries on 2026-09-24. Treat a jump as a question, not a pass.
       - name: Report bundle sizes
         if: success()
         run: |
           echo '### Bundle' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           find dist/assets -name '*.js' -printf '%10s  %f\n' | sort -rn >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Service worker precache' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node -e '
+            const fs = require("node:fs");
+            const m = fs.readFileSync("dist/sw.js", "utf8")
+              .match(/precacheAndRoute\(\s*(\[[\s\S]*?\])\s*,/);
+            if (!m) throw new Error("no precache manifest in dist/sw.js");
+            const urls = [...new Set([...m[1].matchAll(/url:"([^"]+)"/g)].map((x) => x[1]))];
+            const sizes = urls.map((u) => [u, fs.statSync("dist/" + u.replace(/^\//, "")).size]);
+            const total = sizes.reduce((a, [, s]) => a + s, 0);
+            console.log(urls.length + " entries, " + (total / 1048576).toFixed(3) + " MB");
+            sizes.sort((a, b) => b[1] - a[1]).slice(0, 5)
+              .forEach(([u, s]) => console.log(String(s).padStart(10) + "  " + u));
+            // Workbox DROPS a file over maximumFileSizeToCacheInBytes (2 MiB by
+            // default) with a console warning and a zero exit code. The three
+            // chunk is the closest to that line by an order of magnitude, and
+            // losing it means an app that installs, goes offline and then has
+            // no 3D engine. Fail here instead.
+            for (const required of [/^assets\/three-.*\.js$/, /^index\.html$/, /^textures\/manifest\.json$/]) {
+              if (!urls.some((u) => required.test(u))) {
+                throw new Error("missing from precache manifest: " + required);
+              }
+            }
+          ' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build output
