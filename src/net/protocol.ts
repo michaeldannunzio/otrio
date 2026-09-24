@@ -732,8 +732,18 @@ export interface Capabilities {
    * Which implementation is answering. **For diagnostics and telemetry only.**
    * Branching game logic on this value is a bug — that is exactly the leak this
    * protocol exists to prevent. Feature-detect with the booleans below.
+   *
+   * `'local'` is pass-and-play on one device: no link, no remote participant,
+   * the referee running in the same tab as the UI. It is listed here and
+   * nowhere else — `TransportKind` in `transport.ts` is declared as
+   * `Capabilities['kind']`, so this union is the one definition of the set of
+   * backends. Adding a fourth means editing this line and nothing else.
+   *
+   * Two things a UI will want and must NOT get from this field: whether there
+   * is a room code worth showing (use `isLocalRoomCode(room.code)`) and whether
+   * a trust badge applies (use `impartialReferee`).
    */
-  kind: 'hosted' | 'p2p';
+  kind: 'hosted' | 'p2p' | 'local';
   /** Spectators may join. */
   spectators: boolean;
   /** Dropped players get a grace period in which their seat is held. */
@@ -943,6 +953,93 @@ export function isPlausibleRoomCode(code: string): boolean {
     if (!ROOM_CODE_ALPHABET.includes(ch)) return false;
   }
   return true;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Single-device room codes
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Prefix marking a room that exists only inside one browser tab: pass-and-play
+ * on one device, served by `localTransport.ts`.
+ *
+ * WHY A LOCAL ROOM HAS A CODE AT ALL
+ * ----------------------------------
+ * Because it is not optional anywhere it matters. `RoomState.code` is a
+ * required field, `PeerReferee.create(code, …)` takes a `RoomCode` as its first
+ * argument, and the referee hashes it (see `newLocalRoomCode`). So the sentinel
+ * is forced by those signatures, not chosen for tidiness — a local game has to
+ * carry *something*.
+ *
+ * It is never shown and never typed: the local backend's `joinRoom` rejects
+ * with `UNSUPPORTED`, so `createRoom` is the only way into a local room and the
+ * code never has to survive a trip through a human.
+ *
+ * WHY THE PREFIX IS `LOCAL` SPECIFICALLY
+ * --------------------------------------
+ * `L` and `O` are two of the four characters `ROOM_CODE_ALPHABET` deliberately
+ * drops, and both the hosted server (`server/src/util.ts`) and the
+ * peer-to-peer backend (`rtcTransport.ts`) mint codes from that alphabet and
+ * nothing else. A local code therefore cannot collide with a real one — not
+ * improbably, but by construction — and `isPlausibleRoomCode` returns `false`
+ * for it, so a local code pasted into an online join box fails locally with
+ * `CODE_INVALID` and never reaches a server.
+ *
+ * **Never pass a local code through `normalizeRoomCode`.** It folds `L`→`1`
+ * and `O`→`0`, so `'LOCAL'` comes back as `'10CA1'`: still well-formed, no
+ * longer recognisable, and `isLocalRoomCode` would then be `false`.
+ * Normalisation exists for codes a human typed, and nobody types this one.
+ */
+export const LOCAL_ROOM_CODE_PREFIX = 'LOCAL';
+
+/** Random characters appended to `LOCAL_ROOM_CODE_PREFIX`. See `newLocalRoomCode`. */
+export const LOCAL_ROOM_CODE_SUFFIX_LENGTH = 6;
+
+/**
+ * Mint a room code for a single-device game. A fresh one per game.
+ *
+ * **The random suffix is load-bearing, and not for collision resistance.** The
+ * referee seeds the engine with `hashSeed(RoomState.code, RoomState.seq)`
+ * (`referee.ts`), and the only thing that seed decides is who moves first —
+ * `src/game/random.ts` says so in as many words: *"The only thing chance
+ * decides in Otrio is who goes first."* Online, that is varied because room
+ * codes are. On one device it would not be: `seq` at `startGame` counts the
+ * lobby's own state bumps, a deterministic function of how the transport seats
+ * the players with nothing random in it, so two games set up the same way get
+ * the same `seq` — and with a fixed code, the same opener, every time.
+ *
+ * Measured against a fixed `'LOCAL'`, 2 players (rotation length 4):
+ *
+ *     seq  1 -> seed 3740452335 -> firstSlot 3
+ *     seq  2 -> seed 2675871910 -> firstSlot 1
+ *     seq  7 -> seed  883939577 -> firstSlot 0
+ *
+ * Each of those is stable, not a sample. The printed rules make a point of the
+ * opposite — *"Be sure to alternate which player goes first!"* (`docs/RULES.md`
+ * §4.8) — which is free online and has to be bought here, for six characters.
+ *
+ * `32^6 = 1_073_741_824` codes: far more than collision resistance needs, and
+ * exactly what the seed wants. Drawn from `ROOM_CODE_ALPHABET`; `% 32` is
+ * unbiased only because that alphabet has exactly 32 entries.
+ */
+export function newLocalRoomCode(): RoomCode {
+  const bytes = new Uint8Array(LOCAL_ROOM_CODE_SUFFIX_LENGTH);
+  globalThis.crypto.getRandomValues(bytes);
+  let out: string = LOCAL_ROOM_CODE_PREFIX;
+  for (const b of bytes) out += ROOM_CODE_ALPHABET[b % ROOM_CODE_ALPHABET.length];
+  return out;
+}
+
+/**
+ * True for a room that exists only on this device.
+ *
+ * The supported way for a UI to ask *"is there a code to share here?"* — which
+ * is the question the room-code button, the invite sheet and the latency line
+ * are all really asking. Branching on this rather than on `Capabilities.kind`
+ * is what keeps the diagnostics-only rule on `kind` honest.
+ */
+export function isLocalRoomCode(code: RoomCode): boolean {
+  return code.startsWith(LOCAL_ROOM_CODE_PREFIX);
 }
 
 /** Trim, collapse whitespace, cap length, and fall back to a default. */

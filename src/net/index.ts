@@ -1,13 +1,16 @@
 /**
  * Networking entry point — the one place the app names a backend.
  *
- * Otrio ships two interchangeable transports (see `transport.ts` for the
- * contract they both satisfy):
+ * Otrio ships three interchangeable transports (see `transport.ts` for the
+ * contract they all satisfy):
  *
  *   - `hosted` — a WebSocket link to the deployed Node server in `server/`,
  *     which acts as an impartial referee.
  *   - `p2p`    — WebRTC data channels between browsers, refereed by an elected
  *     host peer, with no server in the game path.
+ *   - `local`  — no link at all: two to four people passing one device, with
+ *     the referee running in this tab. **Not wired up yet** — see
+ *     `createTransport`.
  *
  * Everything above this file talks to a `Transport` and never imports
  * `WsTransport` or `RtcTransport` directly. Import from `../../net`, call
@@ -25,7 +28,7 @@
 
 import { createWsTransport } from './wsTransport';
 import type { WsTransportConfig } from './wsTransport';
-import { loadOrCreateIdentity } from './transport';
+import { loadOrCreateIdentity, TransportError } from './transport';
 import type { Identity, Transport, TransportConfig, TransportKind } from './transport';
 
 export type { Transport, TransportConfig, TransportKind, Identity } from './transport';
@@ -55,8 +58,9 @@ export interface CreateTransportOptions extends Partial<TransportConfig> {
  *
  * Resolution order, first match wins:
  *
- *  1. `?net=p2p` or `?net=hosted` in the URL — so the two can be A/B tested by
- *     sending someone a link, with no rebuild and no settings screen.
+ *  1. `?net=p2p`, `?net=hosted` or `?net=local` in the URL — so they can be
+ *     A/B tested by sending someone a link, with no rebuild and no settings
+ *     screen.
  *  2. `localStorage['otrio.net']`, for a sticky preference across reloads.
  *  3. `VITE_OTRIO_TRANSPORT` at build time.
  *  4. `'hosted'`.
@@ -96,10 +100,24 @@ export function rememberTransportKind(kind: TransportKind | null): void {
   }
 }
 
+/**
+ * Parse a stored or query-string backend name.
+ *
+ * `'local'` is **accepted**, not rejected, and the distinction matters:
+ * `rememberTransportKind('local')` writes that string to `localStorage`, and a
+ * parser that could not read it back would fall through to `'hosted'` on the
+ * next load. The player would be silently dropped onto a different backend by a
+ * preference the app itself had saved — a loud problem turned into a quiet one.
+ *
+ * `'offline'` is accepted alongside it because that is what this feature is
+ * called everywhere except in the type, so `?net=offline` is what somebody will
+ * type. Same reason `'rtc'` and `'webrtc'` reach `'p2p'`.
+ */
 function readKind(source: () => string | null): TransportKind | null {
   const raw = source()?.trim().toLowerCase();
   if (raw === 'p2p' || raw === 'rtc' || raw === 'webrtc') return 'p2p';
   if (raw === 'hosted' || raw === 'ws' || raw === 'server') return 'hosted';
+  if (raw === 'local' || raw === 'offline') return 'local';
   return null;
 }
 
@@ -115,6 +133,16 @@ function readKind(source: () => string | null): TransportKind | null {
  * pays for the WebRTC code, and so a browser without `RTCPeerConnection` can
  * still play. That makes this function async; callers `await` it once at
  * startup.
+ *
+ * WHY THIS IS A SWITCH AND NOT AN `if`
+ * ------------------------------------
+ * It used to test `kind === 'p2p'` and fall through to the hosted backend for
+ * everything else. That was fine while there were two backends and became a
+ * defect the moment `TransportKind` gained `'local'`: `createTransport('local')`
+ * would have compiled, returned a `WsTransport`, and dialled a WebSocket server
+ * — an offline mode that opens a socket, failing at runtime instead of at the
+ * call. The `never` default means the compiler, not a player on a plane, finds
+ * the next one.
  */
 export async function createTransport(
   kind: TransportKind = defaultTransportKind(),
@@ -123,17 +151,39 @@ export async function createTransport(
   const identity: Identity = options.identity ?? loadOrCreateIdentity(options.name);
   const base: TransportConfig = { identity, debug: options.debug };
 
-  if (kind === 'p2p') {
-    const { createRtcTransport } = await import('./rtcTransport');
-    return createRtcTransport({
-      ...base,
-      signalingUrl: options.signalingUrl,
-      iceServers: options.iceServers,
-    });
-  }
+  switch (kind) {
+    case 'p2p': {
+      const { createRtcTransport } = await import('./rtcTransport');
+      return createRtcTransport({
+        ...base,
+        signalingUrl: options.signalingUrl,
+        iceServers: options.iceServers,
+      });
+    }
 
-  const config: WsTransportConfig = { ...base, url: options.url };
-  return createWsTransport(config);
+    case 'hosted': {
+      const config: WsTransportConfig = { ...base, url: options.url };
+      return createWsTransport(config);
+    }
+
+    case 'local':
+      // The contract for this backend is published (LOCAL_CAPABILITIES,
+      // LocalTransportConfig, SINGLE-DEVICE BACKEND in transport.ts) but
+      // `localTransport.ts` does not exist yet. Refusing here is the whole
+      // point: the alternative — quietly handing back some other backend —
+      // is how a missing module becomes a runtime mystery. When that file
+      // lands, this case gains a lazy import and `CreateTransportOptions`
+      // gains the seat names; both belong in the commit that adds it.
+      throw new TransportError(
+        'UNSUPPORTED',
+        'The single-device backend is not built yet (src/net/localTransport.ts is missing).',
+      );
+
+    default: {
+      const unreachable: never = kind;
+      throw new TransportError('UNSUPPORTED', `Unknown transport kind: ${String(unreachable)}`);
+    }
+  }
 }
 
 /** Synchronous factory for the hosted backend, when the choice is not dynamic. */

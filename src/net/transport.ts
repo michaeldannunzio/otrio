@@ -4,19 +4,24 @@
  *
  * THE POINT OF THIS FILE
  * ----------------------
- * Otrio ships with two interchangeable networking backends:
+ * Otrio ships with three interchangeable networking backends:
  *
- *   - `wsTransport.ts`  — a WebSocket link to a deployed Node server that acts
- *                         as an impartial referee.
- *   - `rtcTransport.ts` — WebRTC data channels between browsers, with no server
- *                         in the game path at all.
+ *   - `wsTransport.ts`    — a WebSocket link to a deployed Node server that
+ *                           acts as an impartial referee.
+ *   - `rtcTransport.ts`   — WebRTC data channels between browsers, with no
+ *                           server in the game path at all.
+ *   - `localTransport.ts` — no link at all: two to four people passing one
+ *                           device, with the referee running in this tab.
+ *                           Its contract is the SINGLE-DEVICE BACKEND section
+ *                           near the bottom of this file, and it is normative
+ *                           in the same way everything else here is.
  *
- * The UI must be able to use either one without knowing which it has. Every
+ * The UI must be able to use any of them without knowing which it has. Every
  * screen, store and hook in `src/ui`, `src/hooks` and `src/scene` talks to a
  * `Transport` and never to a socket, a peer connection, or a room object. Swap
  * the factory, and the game plays the same.
  *
- * This file is therefore a *specification*, not just a set of types. The two
+ * This file is therefore a *specification*, not just a set of types. The
  * implementations are written by people who cannot see each other's work, so
  * the guarantees below are normative: where the prose says MUST, an
  * implementation that does otherwise is broken even if it type-checks.
@@ -134,6 +139,8 @@ import type {
 
 import {
   MAX_NAME_LENGTH,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
   newPlayerId,
   newSessionSecret,
   sanitizeName,
@@ -397,7 +404,16 @@ export interface TransportSnapshot {
   /** Link state. See `ConnectionStatus`. */
   readonly status: ConnectionStatus;
 
-  /** This client's public id and current display name. Never the secret. */
+  /**
+   * This client's public id and current display name. Never the secret.
+   *
+   * "This client" is a *person* on the hosted and peer-to-peer backends, where
+   * it is fixed for the life of the transport. On the single-device backend it
+   * is the **active seat**, and it changes every time the device is handed
+   * over — see SINGLE-DEVICE BACKEND. Anything that treats this as a stable key
+   * is right on two backends and wrong on the third: a memo dependency is fine,
+   * a cache key that outlives a turn or a persisted value is not.
+   */
   readonly playerId: PlayerId;
   readonly name: string;
 
@@ -596,6 +612,10 @@ export interface Transport {
    * `ALREADY_STARTED` (joining as a player once play began — retry with
    * `asSpectator: true`), `UNSUPPORTED` (spectating requested but unavailable),
    * or the usual link errors.
+   *
+   * The single-device backend rejects every call with `UNSUPPORTED`: a local
+   * room exists only in the tab that created it, so there is nothing to join.
+   * See SINGLE-DEVICE BACKEND below.
    */
   joinRoom(code: RoomCode, options?: JoinRoomOptions): Promise<RoomCode>;
 
@@ -608,13 +628,19 @@ export interface Transport {
    */
   leaveRoom(): Promise<void>;
 
-  /** Set lobby readiness. No-op once the game has started. */
+  /**
+   * Set lobby readiness. No-op once the game has started, and always a no-op on
+   * the single-device backend — see SINGLE-DEVICE BACKEND below.
+   */
   setReady(ready: boolean): Promise<void>;
 
   /**
    * Change display name. Takes effect immediately in the lobby and mid-game.
    * The referee sanitises it, so the value that lands in `RoomState` may
    * differ from what was passed. Also persisted locally.
+   *
+   * The single-device backend rejects this with `UNSUPPORTED` — none of the
+   * above holds there, including the persistence. See SINGLE-DEVICE BACKEND.
    */
   setName(name: string): Promise<void>;
 
@@ -696,6 +722,10 @@ export interface Transport {
  * Backend-specific settings (server URL, ICE servers, signalling endpoint) go
  * in that backend's own options type, which extends this. Nothing
  * backend-specific belongs in `Transport` itself.
+ *
+ * `LocalTransportConfig` is the one exception to *where* those types live: it
+ * is declared below rather than in `localTransport.ts`, because it is the spec
+ * that file is written against and it had to exist before that file did.
  */
 export interface TransportConfig {
   /** From `loadOrCreateIdentity()`. */
@@ -708,13 +738,316 @@ export interface TransportConfig {
  * Which backend to build. The one place in the app where the choice is named.
  *
  * Intended use: a single `createTransport(kind, config)` in app setup, with
- * `kind` coming from a URL parameter or a settings toggle, so the two can be
+ * `kind` coming from a URL parameter or a settings toggle, so backends can be
  * compared without a rebuild.
+ *
+ * **Derived, not declared.** This used to be a second hand-written copy of
+ * `Capabilities['kind']`, which is a set of backend names with two owners and
+ * therefore two ways to disagree — and adding `'local'` would have needed
+ * editing both. There is now one definition, in `protocol.ts`, and this is a
+ * view of it.
  */
-export type TransportKind = 'hosted' | 'p2p';
+export type TransportKind = Capabilities['kind'];
 
 /** Signature every backend's factory must match. */
 export type TransportFactory<C extends TransportConfig = TransportConfig> = (config: C) => Transport;
+
+/* ========================================================================== *
+ * The single-device backend
+ * ========================================================================== */
+
+/**
+ * Display names for a single-device game, one per seat, in seat order.
+ *
+ * A union of tuples rather than `string[]`, so "two to four players" is a fact
+ * the compiler enforces instead of a comment somebody has to remember to obey.
+ * The precedent is `GameSnapshot.turnColors`, a union of non-empty tuples for
+ * the same reason. The alternative is a runtime clamp, and a clamp turns a
+ * caller's mistake into a game that quietly has the wrong number of seats.
+ *
+ * `seatNames[i]` belongs to seat `i`, and `seatNames.length` — `2 | 3 | 4` — is
+ * the player count. There is deliberately no second field carrying that number:
+ * two definitions of one value is a divergence with a delay fuse.
+ *
+ * The bounds duplicate `MIN_PLAYERS` and `MAX_PLAYERS` because a literal tuple
+ * type cannot be built from a `const`. They come from the physical game (four
+ * colours of nine pieces) and do not move; if they ever do, this union moves
+ * with them.
+ */
+export type LocalSeatNames =
+  | readonly [string, string]
+  | readonly [string, string, string]
+  | readonly [string, string, string, string];
+
+/**
+ * Narrow a dynamic list of names to `LocalSeatNames`, or `null` when it is not
+ * between `MIN_PLAYERS` and `MAX_PLAYERS` long.
+ *
+ * Same idiom and same reason as `toSeat` in `protocol.ts`. A UI builds its seat
+ * list by pushing and splicing, so it holds a `string[]`, and the narrowing has
+ * to happen somewhere; returning `null` rather than asserting makes the caller
+ * say at the call site why the length is right, which is cheaper to check later
+ * than a bare `as`.
+ *
+ * Does **not** sanitise. Names are sanitised by the referee, exactly as they
+ * are online, so a hot-seat name and a networked name get identical treatment.
+ * See `sanitizeName` — there is one owner for that rule and it is not here.
+ */
+export function toLocalSeatNames(names: readonly string[]): LocalSeatNames | null {
+  if (names.length < MIN_PLAYERS || names.length > MAX_PLAYERS) return null;
+  switch (names.length) {
+    case 2:
+      return [names[0], names[1]];
+    case 3:
+      return [names[0], names[1], names[2]];
+    case 4:
+      return [names[0], names[1], names[2], names[3]];
+    default:
+      return null;
+  }
+}
+
+/**
+ * Configuration for the single-device backend.
+ *
+ * Shaped like `WsTransportConfig` and `RtcTransportConfig`: it extends
+ * `TransportConfig` and adds only what this backend cannot do without. What it
+ * does *not* carry is the point — no URL, no signalling endpoint, no ICE
+ * servers, no room code, no per-seat secret. A local game has no other end.
+ */
+export interface LocalTransportConfig extends TransportConfig {
+  /** Who is playing, in seat order. Its length is the player count. */
+  seatNames: LocalSeatNames;
+}
+
+/**
+ * The turn clock is pinned off for single-device play, and is deliberately
+ * **not** a config field.
+ *
+ * `PeerReferee.tick()` does not merely expire a turn when the deadline passes:
+ * it plays `legalMoves[0]` for that seat, per `TURN_TIMEOUT_POLICY` (verified
+ * in `referee.ts`, 2026-09-24). That is right online, where the alternative is
+ * three people waiting on someone who has walked away. It is wrong here, where
+ * the "absent" player is a person holding the device and thinking, with nobody
+ * waiting at the other end of anything — a timed hot-seat game would place a
+ * piece out from under them.
+ *
+ * So the local transport MUST pass this and MUST NOT offer a way to change it.
+ * Timed pass-and-play would need a referee that can expire a turn *without*
+ * moving for the player: a different decision, and not one to make by widening
+ * a config.
+ */
+export const LOCAL_TURN_TIMEOUT_MS = 0;
+
+/**
+ * What the single-device backend can do.
+ *
+ * The local transport MUST expose this object rather than build its own, so
+ * these seven values have one definition — the same reason `P2P_CAPABILITIES`
+ * is exported from `rtcTransport.ts` instead of being restated by its callers.
+ *
+ * Each flag, and why:
+ *
+ * - `spectators: false` — a consequence, not a policy. The only route into
+ *   `RoomState.spectators` is `joinRoom({ asSpectator: true })`, and this
+ *   backend rejects `joinRoom` outright, so a spectator cannot be constructed.
+ *   People watching over a shoulder are not participants and need no seat.
+ * - `reconnect: false`, `reconnectGraceMs: 0` — there is no link to drop. The
+ *   referee lives in the same heap as the UI: if it is gone, the page is gone,
+ *   and there is nobody left to hold a seat for. `0` is what the field's own
+ *   doc requires when `reconnect` is false, and it is also what stops the
+ *   referee arming grace timers against players who cannot disconnect.
+ * - `hostMigration: false` — there is one process and seat `0` holds the host
+ *   role for the life of the room. Nothing to migrate to.
+ * - `impartialReferee: false` — see below.
+ * - `maxPlayers: MAX_PLAYERS` — the *backend ceiling*, not this game's seat
+ *   count. The configured count lives in `RoomState.maxPlayers`, which the
+ *   referee sets from `CreateRoomOptions.maxPlayers`. The transport MUST NOT
+ *   refine this field per instance: one number, one owner, and the owner is the
+ *   room.
+ *
+ * WHY `impartialReferee` IS FALSE
+ * -------------------------------
+ * **Where the source material does not specify, I am inventing a rule** — the
+ * flag is documented as "whether an impartial referee validates moves", with
+ * peer-to-peer reporting `false` because the referee runs on one player's
+ * machine, and nothing settles the case where every player shares one machine.
+ *
+ * A single-device game is arguably *more* symmetric than peer-to-peer: the
+ * referee sits on the one device every seat shares, so it favours no seat over
+ * another, and `true` was the tempting answer. It is the wrong one, because the
+ * two possible errors are not the same size. `true` claims an authority that is
+ * not there — the rules run inside the players' own bundle, and a reader who
+ * checks this flag and finds `true` would believe a move was validated by
+ * something outside any player's control. `false` merely over-warns, in a game
+ * where everyone is looking at the same screen and there is nobody to deceive.
+ * Over-warning is cosmetic; over-claiming is a correctness bug in slow motion.
+ *
+ * One consequence somebody downstream owns: `src/ui/screens/SettingsSheet.tsx`
+ * renders "Friendly game — one of the phones is running the rules rather than a
+ * server" whenever this is `false`. That copy is written for peer-to-peer and
+ * reads oddly with one phone. It is true rather than misleading, so it is not
+ * blocking, but it is UI copy and it is not mine. Select a local variant with
+ * `isLocalRoomCode(room.code)`, never with `capabilities.kind`.
+ */
+export const LOCAL_CAPABILITIES: Capabilities = {
+  kind: 'local',
+  spectators: false,
+  reconnect: false,
+  reconnectGraceMs: 0,
+  hostMigration: false,
+  impartialReferee: false,
+  maxPlayers: MAX_PLAYERS,
+};
+
+/* ========================================================================== *
+ * SINGLE-DEVICE BACKEND — normative behaviour
+ * ========================================================================== *
+ *
+ * Everything in the `Transport` interface applies unchanged unless it is
+ * contradicted here. This section is the spec `localTransport.ts` is written
+ * against, and it exists because that file is written by someone who cannot see
+ * this one being written.
+ *
+ * IDENTITIES
+ * ----------
+ * One synthetic `PlayerId` per seat.
+ *
+ *   - Seat `0` MUST reuse `config.identity`'s `playerId` and `sessionSecret`.
+ *     `Identity` already satisfies `RefereeHost` structurally (see the note on
+ *     that type in `referee.ts`), so no adapter and no new identity concept.
+ *
+ *     **Its `name` MUST be replaced with `seatNames[0]`.** `PeerReferee.create`
+ *     builds seat 0 from `host.name` (via `makePlayerView`, verified
+ *     2026-09-24) — so passing `config.identity` unchanged names seat 0 after
+ *     the device's persisted *online* display name while seats 1..n take their
+ *     configured names. That type-checks, runs, and puts the wrong name on one
+ *     player. Pass `{ ...config.identity, name: seatNames[0] }`.
+ *   - Seats `1..n-1` get `newPlayerId()` and `newSessionSecret()` from
+ *     `protocol.ts`.
+ *   - Those synthetic identities MUST NOT be persisted. This feature has no
+ *     auto-save, and a persisted hot-seat identity would be indistinguishable
+ *     next session from the device's own online one.
+ *
+ * THE ROOM HAS NO LOBBY
+ * ---------------------
+ * `createRoom()` seats every entry of `seatNames`, marks every non-host seat
+ * ready, leaves seat `0` holding the host role, and returns
+ * `newLocalRoomCode()`. The room is left in `phase: 'lobby'`, and the caller
+ * invokes `startGame()` immediately after. There is no ready-up screen, because
+ * there is nobody to wait for.
+ *
+ * That shape is forced by the referee rather than chosen (verified in
+ * `referee.ts`, 2026-09-24):
+ *
+ *   - `onStartGame` NACKs `NOT_HOST` unless the sender is `hostPlayerId`, so
+ *     the call has to be made as seat 0.
+ *   - It then NACKs `NOT_ENOUGH_PLAYERS` unless every non-host seat has
+ *     `ready`, so every synthetic seat has to be ready before it. Seat 0 is
+ *     exempt in `onStartGame` itself and does not need marking — `create`
+ *     leaves it `ready: false` and that is fine.
+ *   - `onJoin` takes a seat's name from `pendingNames` alone, falling back to
+ *     the literal `'Player'`. `noteName(id, name)` MUST therefore be called for
+ *     each seat *before* that seat joins, or the game is played by four people
+ *     called Player.
+ *
+ * `PeerReferee.create(code, host, options, capabilities, send)` takes a
+ * mandatory `RoomCode` and a `CreateRoomOptions` — not a `RefereeOptions`,
+ * which it builds internally. The local transport passes exactly:
+ *
+ *     code:         newLocalRoomCode()
+ *     host:         { ...config.identity, name: config.seatNames[0] }
+ *     options:      { maxPlayers:      config.seatNames.length,
+ *                     allowSpectators: false,
+ *                     turnTimeoutMs:   LOCAL_TURN_TIMEOUT_MS }
+ *     capabilities: LOCAL_CAPABILITIES
+ *
+ * `options.maxPlayers` is how the seat count reaches `RoomState.maxPlayers`,
+ * which is the one place that number lives.
+ *
+ * THE HOT SEAT
+ * ------------
+ * The **active seat** is:
+ *
+ *   - seat `0` while `room.game === null` — the moment between `createRoom` and
+ *     `startGame`. Seat 0 holds the host role, so `startGame` lands on a seat
+ *     entitled to make it.
+ *   - `room.game.turn` once `room.game !== null`.
+ *
+ * With one exception, written down because leaving it implicit is how it
+ * breaks: once `room.game.phase === 'finished'`, `GameSnapshot.turn` is
+ * documented as meaningless, so the active seat falls back to seat `0` — the
+ * seat that owns `requestRematch`. `isMyTurn` is false either way; what differs
+ * is which name the UI puts on the end screen.
+ *
+ * `TransportSnapshot.playerId` and `.name` MUST be the active seat's. They
+ * therefore change on every handoff. That is the one place this backend's
+ * snapshot behaves differently from the other two, and it is deliberate: "who
+ * am I" in pass-and-play is "whoever is holding the phone". A UI MUST NOT cache
+ * `playerId` across a turn — it is the thing that moves.
+ *
+ * `role`, `seat`, `isMyTurn` and `isHost` MUST come from
+ * `deriveLocalView(room, activeSeatPlayerId)`, unchanged and unwrapped. Feeding
+ * it the active seat's id makes `isMyTurn` true exactly while the game is
+ * running, which is the right answer for a hot seat: the board accepts the
+ * current player's touch and nobody else's, and there is nobody else.
+ *
+ * METHOD DELTAS
+ * -------------
+ *   - `connect()` resolves once the in-process referee exists. `status` goes
+ *     `idle → connecting → connected` with no I/O, and never reaches
+ *     `reconnecting` or `failed`.
+ *   - `createRoom()` is the only way into a room. See THE ROOM HAS NO LOBBY
+ *     above for exactly what it does and why it has no choice.
+ *   - `joinRoom()` MUST reject with `TransportError('UNSUPPORTED', …)` for
+ *     every input, before looking at the code at all. Not `ROOM_NOT_FOUND`:
+ *     there is no registry to miss in, and a retryable-looking code invites a
+ *     UI retry loop. `UNSUPPORTED` is not in `RETRYABLE_CODES`.
+ *   - `setReady()` resolves as a no-op. Every seat is already ready before
+ *     `createRoom` returns and there is no lobby in which to become un-ready,
+ *     so the call has no effect available to it. A no-op rather than a
+ *     rejection because the base contract already defines `setReady` as a no-op
+ *     in a state where readiness does not apply, and a shared lobby component
+ *     calling it should cost nothing.
+ *   - `setName(name)` MUST reject with `UNSUPPORTED`. Seat names are owned by
+ *     `LocalTransportConfig.seatNames` and set once; this method names no seat,
+ *     so against a rotating identity it would rename whoever happens to be
+ *     holding the device — a behaviour nobody could have asked for. It would
+ *     also have to skip `saveIdentityName`, so every documented part of its
+ *     behaviour would be replaced. To rename a seat, construct a new local
+ *     game: no lobby and no network means that costs a click.
+ *
+ *     The asymmetry with `setReady` is deliberate. `setReady` has no effect
+ *     either way; `setName` would have the *wrong* effect. A call with nothing
+ *     to do resolves, a call that would do the wrong thing fails.
+ *   - `requestRematch(true)` MUST be submitted on behalf of every seat, so the
+ *     offer completes immediately. Routing it through the active seat alone
+ *     leaves the rematch waiting on players who have no way to answer.
+ *   - `resync()` is a no-op that resolves; the snapshot is already the truth.
+ *   - `leaveRoom()` and `dispose()` behave as specified for every backend.
+ *
+ * Snapshot discipline, event isolation and the `Object.is` stability rule are
+ * NOT relaxed. They are what `useSyncExternalStore` needs, and it does not care
+ * that there is no network.
+ *
+ * THE OFFICIAL TWO-PLAYER RULE
+ * ----------------------------
+ * Nothing above assumes one colour per seat, and a local transport does not
+ * have to think about colours at all.
+ *
+ * `deriveLocalView` compares seats only (`room.game.turn === me.seat`). Colour
+ * assignment happens entirely inside the referee's `startGame`, via
+ * `colorsForSeat`, which reads `EngineConfig.seats[].controls` and depends only
+ * on the player count. So a two-player local game gets the official
+ * two-colours-per-seat arrangement with strict alternation for free.
+ *
+ * The seat to move still alternates every turn — the engine's two-player
+ * rotation is four slots long, `[seat 0, seat 1, seat 0, seat 1]`, carrying one
+ * colour each. What alternates *within* a seat is which of its two colours is
+ * due, and that is `GameSnapshot.turnColors`, which the UI already renders.
+ * Verified by reading `referee.ts` (`startGame`, `colorsForSeat`) and
+ * `engine.ts` (rotation construction) on 2026-09-24.
+ */
 
 /* ========================================================================== *
  * Helpers shared by implementations
@@ -723,11 +1056,17 @@ export type TransportFactory<C extends TransportConfig = TransportConfig> = (con
 /**
  * Derive the convenience projections in `TransportSnapshot` from a `RoomState`.
  *
- * Both backends MUST use this rather than computing `isMyTurn` themselves —
- * the edge cases (spectators, forfeited seats, paused games, games that have
- * finished but whose `turn` still points somewhere) are exactly where two
+ * Every backend MUST use this rather than computing `isMyTurn` itself — the
+ * edge cases (spectators, forfeited seats, paused games, games that have
+ * finished but whose `turn` still points somewhere) are exactly where
  * independent implementations drift apart, and a wrong `isMyTurn` means a board
  * that accepts clicks it should not.
+ *
+ * The single-device backend uses it unchanged by passing the **active seat's**
+ * synthetic `playerId` — see SINGLE-DEVICE BACKEND above. That is why this
+ * helper takes a `playerId` rather than reading one off a transport: "who am I"
+ * is a question with a moving answer in pass-and-play, and every other
+ * projection follows from it. Nothing here needs to know that.
  */
 export function deriveLocalView(
   room: RoomState | null,
@@ -843,7 +1182,7 @@ export class Emitter<M> {
  * Conformance checklist
  * ========================================================================== *
  *
- * A backend is done when all of these hold. Written out because the two
+ * A backend is done when all of these hold. Written out because the
  * implementations cannot be diffed against each other.
  *
  * Lifecycle
@@ -883,4 +1222,17 @@ export class Emitter<M> {
  *   [ ] Two clients reconnecting simultaneously both recover their own seats.
  *   [ ] For P2P only: killing the host peer elects a new one, `seq` continues
  *       upward, and no client rewinds. `hostChanged` fires.
+ *
+ * Single device
+ *   [ ] `joinRoom` rejects `UNSUPPORTED` for every input, including a code the
+ *       same transport just returned from `createRoom`.
+ *   [ ] `startGame` succeeds without any caller having touched `setReady`.
+ *   [ ] `getSnapshot().playerId` changes when the turn does, and
+ *       `getSnapshot().isMyTurn` is true on every turn of a running game.
+ *   [ ] `requestRematch(true)` resolves and restarts without a second caller.
+ *   [ ] Two games started the same way do not always open on the same seat.
+ *       (This is the one that fails if the room code stops being random —
+ *       see `newLocalRoomCode`.)
+ *   [ ] `localStorage` holds no seat identity after a game: only the key
+ *       `IDENTITY_STORAGE_KEY`, unchanged.
  */
