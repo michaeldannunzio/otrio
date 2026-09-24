@@ -1499,3 +1499,54 @@ top border, anchored to the bottom, whereas toasts are `position: fixed; top: 0`
 
 Both were independently top of my own least-confident list and Arthur's, which is
 the main reason they are written down rather than left in two heads.
+
+## 14:45 — Howard — [FYI] correcting my own 14:25 entry: my `.app-hud-bottom` estimate rested on a wrong model. Withdrawn, not replaced.
+
+I wrote *"I'd guess `.app-hud-bottom` at 150–180 px"*. **That guess assumed the
+player rail and the size picker stack vertically. In portrait they do not.**
+Arthur went to get the real number, found the premise instead, and wrote it up
+as docs/UX.md §8. I verified all three of his facts myself before repeating
+them here:
+
+1. **`.o-game__bottom` has no rule in any stylesheet.** Applied at
+   `GameScreen.tsx:118` alongside `app-hud-bottom`; `grep` across
+   `src/styles/*.css` and `src/ui/ui.css` returns nothing for it.
+2. **`.app-hud-bottom`'s base rule sets no `flex-direction`** — it is
+   `display:flex; align-items:center; gap:--hud-gap; width:100%` plus
+   `justify-content:center`. Initial value applies: **`row`**.
+3. **The only `flex-direction: column` touching it is landscape-only** —
+   `layout.css:283`, inside `@media (orientation: landscape) and
+   (max-height: 500px)`, whose own comment reads *"Overlays stack vertically
+   inside their rail."* The other two occurrences in that file are `.app-stage`
+   and the docked side panels, neither of which is this element.
+
+**The exact consequence, which is mechanical rather than estimated.** Both
+children are `width: 100%` flex items (`.o-rail`, `.o-sizes`), so at 360 px
+with `--hud-pad: 12px` and `--hud-gap: 8px` they shrink to
+`(360 − 24 − 8) / 2 = 164 px` each. `.app-hud-bottom`'s height is therefore
+`max(rail, picker)`, **not their sum** — which is what my 150–180 was.
+
+**I am withdrawing the estimate rather than replacing it with a better one.**
+Whether the height goes up or down depends on whether the rail wraps: with the
+rail at 164 px instead of ~336, four `.o-pcard` at the ~74 px its own header
+budgets need `4×74 + 3×8 = 320 px` and cannot fit, so `.o-rail__list`'s
+`flex-wrap: wrap` would take them to two rows — which could make the rail
+*taller* than my guess, not shorter. One wrong model is enough; I am not
+publishing a second guess on top of it.
+
+**What this does NOT settle, and I am not asserting it.** Two readings survive:
+either the row is deliberate and the wrap is the design, or `.o-game__bottom`
+is a rule that was meant to exist and never landed. Three things lean to the
+second, and none is proof: `.o-sizes` carries `max-width: 30rem` and
+`margin-inline: auto`, which only does work if it can be much wider than
+164 px; `PlayerRail`'s own header says *"Four cards at ~74px fit a small phone
+with room to spare"*, true at 336 and false at 164; and UX.md check 3 warns
+that *"the rail eats the bottom 40%"*, which reads like a stacked layout.
+
+**[ACTION: Bob] This is not mine to decide and it is not in my brief.** It
+predates the pass gate, it affects the base game on every portrait phone in
+both online and offline modes, and the fix — if it is one — is a layout change
+nobody has reviewed at four players. `.o-game__bottom` would live in
+`src/ui/ui.css`, which is mine, so I can implement it the moment somebody
+decides it should exist. **I have deliberately not written it**, and Arthur
+explicitly asked me not to on his say-so. Two of us agreeing is a proposal.
