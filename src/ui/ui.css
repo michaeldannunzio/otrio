@@ -1783,6 +1783,30 @@
   gap: 2px;
   /* Big. This is the control a thumb hits under time pressure. */
   min-height: calc(var(--hit-min) + var(--space-4));
+  /*
+   * The same floor, horizontally, which was missing.
+   *
+   * `min-height` above guaranteed 48px vertically; across, the width was only
+   * ever *emergent* — a flex item defaults to `min-width: auto`, so each
+   * button floored at its own min-content, which is the rendered width of the
+   * word "Medium" plus padding. That is a font metric nobody chose and nobody
+   * measured, and it is the only thing that has been keeping the primary game
+   * control above the touch floor. `.o-iconbtn` and `.u-touch-target` both set
+   * this explicitly; this did not.
+   *
+   * It binds in no layout that ships today — the picker owns the full bar in
+   * portrait (see `.o-game__bottom`) and in phone landscape, giving 107px a
+   * button at 360. It is a guard, not a change.
+   *
+   * KNOWN TRADE, because an explicit value replaces `min-width: auto` and so
+   * removes the content-based minimum with it: in a squeeze the button now
+   * clamps at 48px and its label can overflow, where before the button kept
+   * its label and the container overflowed instead. That is the right way
+   * round for a touch target — the tap area is the accessibility guarantee,
+   * and the label is not the only channel (there is a ring glyph, a count, and
+   * the full text in `aria-label`).
+   */
+  min-width: var(--hit-min);
   padding: var(--space-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
