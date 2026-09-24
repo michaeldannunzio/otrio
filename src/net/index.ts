@@ -12,9 +12,9 @@
  *     the referee running in this tab.
  *
  * Everything above this file talks to a `Transport` and never imports
- * `WsTransport` or `RtcTransport` directly. Import from `../../net`, call
- * `createTransport()`, and the choice becomes a runtime setting rather than a
- * rebuild — which is the whole reason for building two.
+ * `WsTransport`, `RtcTransport` or `LocalTransport` directly. Import from
+ * `../../net`, call `createTransport()`, and the choice becomes a runtime
+ * setting rather than a rebuild — which is the whole reason for building three.
  *
  * IMPORT THIS MODULE WITH A LITERAL SPECIFIER
  * -------------------------------------------
