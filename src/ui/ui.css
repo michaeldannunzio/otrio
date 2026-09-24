@@ -1463,23 +1463,41 @@
  *
  * WHY THIS IS A MISSING RULE AND NOT A DELIBERATE ROW
  * --------------------------------------------------
- * Settled on a rendered frame rather than by reading intent out of the
- * cascade: `e2e/screenshots/10-device-small-phone-360.png` (committed 16 Sep)
- * shows the player rail in the left half and the size picker squeezed into the
- * right, with the rail already wrapped to one card per row at **two** players.
- * Four would be four rows. Two further signals agree — `PlayerRail`'s own
- * header budgets "~74px" a card and says four fit a small phone, true at 336
- * and false at 164; and `.o-sizes` carries `max-width: 30rem` with
- * `margin-inline: auto`, two properties that can never do any work on an
- * element permanently clamped to half a phone.
+ * The load-bearing argument is the size picker's touch targets, and it is
+ * computed from current CSS rather than observed in a screenshot:
  *
- * THE ARITHMETIC, because it is the whole argument:
- *   `.app-stage` pads `--hud-pad` (12px) each side, so the row is 336px at 360.
- *   ROW    — two `width: 100%` children sharing `336 - 8` gap => ~164px each.
- *            Four cards need `4x74 + 3x8 = 320px`. They cannot fit, so
- *            `.o-rail__list`'s `flex-wrap: wrap` breaks them into rows.
- *   COLUMN — each child owns 336px. 320 <= 336, so the rail is ONE row and the
- *            picker gets its full width back.
+ *   `.app-stage` pads `--hud-pad` (12px) a side, so the bar is 336px at 360.
+ *   ROW    — two `width: 100%` children share `336 - 8` gap. That is ~164px
+ *            each by flex-shrink, and ~173px for the picker measured off a
+ *            real frame. `.o-sizes__group` is a flex row of three `.o-size`
+ *            at `flex: 1 1 0` with `--space-2` (8px) gaps, so each button is
+ *            `(164 - 16) / 3 = 49px` wide, or 52px at the measured 173.
+ *   COLUMN — the picker owns 336px, and the same three are
+ *            `(336 - 16) / 3 = 107px`.
+ *
+ * `--hit-min` is **48px** under `(pointer: coarse)` (layout.css, "grow every
+ * target to the 48px touch floor"). So a row leaves the primary control 1-4px
+ * above the floor this codebase sets for itself, and `.o-size`'s own comment
+ * two rules down says "Big. This is the control a thumb hits under time
+ * pressure." 49 vs 107 is the argument.
+ *
+ * Two structural signals agree, neither depending on a rendered frame:
+ * `.o-sizes` carries `max-width: 30rem` and `margin-inline: auto`, both
+ * permanently inert on an element clamped to half a phone and purposeful at
+ * full width; and this class is applied in the markup while its two BEM
+ * siblings (`.o-game`, `.o-game__menu`) are both defined.
+ *
+ * SUPERSEDED EVIDENCE, recorded so nobody re-derives it and thinks it supports
+ * this. `e2e/screenshots/10-device-small-phone-360.png` shows the rail wrapped
+ * to one card per row at two players — but it was committed at `7ba926f`
+ * 2026-09-16 01:38, twelve minutes before `f80e321` fixed the collapsed shell
+ * and seven hours before `6ce9dd7` replaced the rail's nine-pip trays with
+ * three ring-and-digit ones. **The cards in that frame no longer exist**, so
+ * neither its wrapping nor `PlayerRail`'s stale "~74px a card" budget (which
+ * describes those pips, and argues for them over the numbers that ship) says
+ * anything about today's widths. The frame does still support the argument
+ * above: `.o-size` and `.o-sizes__group` were untouched by both commits, so
+ * the cramped buttons in it are the same component rendering today.
  *
  * PORTRAIT ONLY, and that scoping is load-bearing. `layout.css` already sets
  * `flex-direction: column` for phone landscape (`orientation: landscape` and
