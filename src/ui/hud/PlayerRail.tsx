@@ -22,10 +22,19 @@ import { ConnectionDot } from './ConnectionDot';
  * strategy. Every player's tray is therefore on screen permanently, for all
  * four players, on a 360px phone.
  *
- * Getting that to fit: each card is a colour band, a short name, a 3x3 block of
- * pips, and a connection mark. Counting three pips is instantaneous; reading
- * "2" is not. Four cards at ~74px fit a small phone with room to spare, and on
- * a wide screen the rail becomes a column beside the board instead.
+ * Each card is a colour band, one or two colour badges, a short name, a
+ * connection mark, and one `ReserveTray` per colour the seat plays. A tray is
+ * three ring glyphs, each with its remaining count beside it. From 1024px the
+ * rail docks into a column beside the board instead.
+ *
+ * This paragraph used to describe a 3x3 block of nine pips per colour and argue
+ * that counting pips beats reading a digit — a card that was replaced by the
+ * ring-and-count trays above, leaving the comment recommending the opposite of
+ * what ships. It also carried a "four cards at ~74px" budget. **That figure is
+ * gone rather than updated: it measured the pip card, and no one has measured
+ * the current one.** Two agents quoted it as a current width on 2026-09-24 and
+ * both published wrong arithmetic from it. If you need a per-card width, take
+ * it off a frame and say which frame.
  *
  * Tapping a card opens the detail sheet -- full name, connection, latency --
  * so nothing is lost by the compact form, it is just one tap away.
