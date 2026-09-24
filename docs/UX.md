@@ -93,35 +93,66 @@ same size, same weight, and only one of them is readable, because one has a
 
 **Rule: any HUD text over the canvas gets a surface behind it, or it does not go there.**
 
-**WITHDRAWN 2026-09-24, and this is the worst of my errors today — read it before you trust
-anything else on this page.** I reported this as "confirmed by pixels, live in both modes" and
-sent it to Bob as a live defect. **It is fixed, and it was fixed before I looked.**
+**Not a live defect — fixed 2026-09-16. My observation was right; my currency check was not.**
 
-Today `.o-sizes__hint` and `.o-sizes__rule` **share one rule** carrying
-`background-color: var(--surface-2)`, `border-radius: var(--radius-pill)` and
-`color: var(--text-primary)`, under a comment block that documents this exact fix and names
-`.o-sizes__hint` as "the case that proved it".
+I reported this as "confirmed by pixels, live in both modes" and sent it to Bob as a live defect.
+Howard caught that it is already fixed. **Then I published a second, worse correction claiming I
+had hallucinated the defect entirely, and Howard caught that too.** Both the retraction and the
+retraction's reasoning are recorded here because the second one is the more useful mistake.
 
-And at the frame's own commit (`7ba926f`) that shared rule read, in full:
+**What was actually true at the frame's commit `7ba926f`** — two blocks, seven lines apart:
 
-    .o-sizes__hint,
-    .o-sizes__rule { margin: 0; text-align: center; font-size: var(--text-2xs);
-                     color: var(--text-secondary); }
+    1333  .o-sizes__hint,
+    1334  .o-sizes__rule { margin: 0; text-align: center;
+                           font-size: var(--text-2xs); color: var(--text-secondary); }
 
-**Neither had a pill.** So the contrast I described seeing between the two — *"same size, same
-weight, one readable"* — **cannot have come from this rule**, in that frame, in either direction.
-I looked at a picture, saw what this page's check 2 told me to expect, and called it
-confirmation. I never opened the stylesheet at that commit, which is the one thing that would
-have stopped me.
+    1341  .o-sizes__rule { padding: …; border-radius: var(--radius-pill);
+                           background-color: var(--surface-2);
+                           color: var(--text-primary); font-weight: var(--weight-medium); }
 
-**That is different in kind from the day's other errors, and worse.** The rest were arithmetic —
-a wrong model, an unchecked causal step. This one was *confirmation bias against a stale
-artefact*: the frame did not mislead me, my own checklist did, because I went looking for its
-example and an image is compliant enough to seem to supply one. **An old screenshot will show you
-whatever your prior already believes.**
+**`.o-sizes__rule` had its own pill; `.o-sizes__hint` did not.** One line in a `--surface-2` pill at
+`--text-primary`, the other plate-less at `--text-secondary` over the board — exactly what the
+frame shows and exactly what I described. **The defect was real.** It was fixed 23 minutes later
+at `e8cc3a9` (02:01:34) by folding the pill into the shared rule, and traced:
 
-Check 2's rule stands and the HUD TEXT RULE comment in `ui.css` is now its best statement. What
-does not stand is this page citing it as a live defect. Verified fixed 2026-09-24.
+    7ba926f  shared block background: no   standalone .o-sizes__rule pill: yes   <- the frame
+    f80e321  shared block background: no   standalone pill: yes
+    e8cc3a9  shared block background: YES  <- fixed
+    HEAD     shared block background: YES
+
+**So my error was staleness, and nothing more exotic** — the same error the rest of us made, on
+the same artefact, the same afternoon. The observation was accurate and the fix I would have asked
+for is the fix that was applied.
+
+**The real lesson is in how I got the second correction wrong, and it is worth more than the
+first.** I checked the frame's stylesheet with:
+
+    awk '/^\.o-sizes__hint/,/^\}/'
+
+That range *starts* at `.o-sizes__hint` and *ends* at the first `}`. **It is structurally incapable
+of showing a standalone `.o-sizes__rule` block below it.** I ran a search that could not return the
+counter-evidence, got silence, and read the silence as proof. Then I wrote a confident public
+retraction on it and called myself biased.
+
+> **A search scoped so it cannot surface the counter-evidence returns silence, not absence.**
+> Before concluding "X isn't there", check that the command could have shown you X.
+
+**And a caution about self-criticism specifically.** The false conclusion arrived while I was
+being hard on myself, not while I was being confident — I was so willing to believe I had erred
+that I skipped verifying the error. Contrition is not a verification method, and a wrong
+self-accusation is still a wrong claim in a file other people cite.
+
+**The line I published and have now deleted was:** *"an old screenshot will show you whatever your
+prior already believes."* It was derived from the false premise, and it is actively harmful —
+it would teach readers to discount rendered evidence in general, when the truth of today is the
+opposite. **That frame was right about `.o-size`, right about the hint, and wrong only about the
+rail.** The correct rule is already on this page: *staleness is per-component, not per-frame* —
+`git show <frame-commit>:<file>`, diff the component against `HEAD`, cite what matches. That
+would have caught every one of the three misreadings, including this one.
+
+Check 2's rule stands and the HUD TEXT RULE comment in `ui.css` is its best statement. Verified
+fixed 2026-09-24.
+
 
 ### 3. Does it work in 360 px of width and 640 px of height?
 
