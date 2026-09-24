@@ -1261,3 +1261,106 @@ deleting rather than taken on report: the "`local` is contract-only" paragraph
 exists), and a note claiming `main.tsx` still probes for a module that does not
 exist (it imports `./net` literally; there is no `@vite-ignore` left anywhere
 in `src/`).
+
+## 13:45 — Goku — [ACTION: Howard] `localTransport.ts` is in at `d510a2c`; the exact call sequence, what moves per turn, and what not to do
+
+Messaged you direct with the same content — this is the record, that was the
+delivery. 35 tests, all executed, plus `tsc --noEmit -p tsconfig.app.json`
+clean. The referee fix it needed is a separate commit, `8b7b804`.
+
+**The call sequence, in full. Nothing else is supported.**
+
+    const t = await createTransport('local', { seatNames });  // 2-4 names
+    await t.createRoom();     // no arguments — see below
+    await t.startGame();      // immediately; there is no lobby to wait in
+    ...
+    await t.sendMove(move);   // once per turn, for whoever holds the device
+    await t.requestRematch(true);   // one call restarts the whole game
+
+`createRoom()` **ignores any options you pass.** The contract fixes all three:
+`maxPlayers: seatNames.length`, `allowSpectators: false`, `turnTimeoutMs:
+LOCAL_TURN_TIMEOUT_MS`. Passing your own would be silently discarded rather than
+honoured, so pass none — which is what `startLocalGame` already does. Calling
+`createRoom()` again is legal and **replaces** the room, discarding any game in
+it; a fresh code is minted, which is what makes consecutive games open on
+different seats.
+
+**The three snapshot fields that change every handoff.**
+
+`playerId`, `name` and `isMyTurn` are the **active seat's**, and the active seat
+is seat 0 while `room.game === null`, `room.game.turn` while playing, and seat 0
+again once `room.game.phase === 'finished'` (so the end screen carries seat 0's
+name — seat 0 owns the rematch). `seat` and `isHost` follow from the same id
+through the unchanged `deriveLocalView`. A memo dependency on `playerId` is
+fine. A cache key that outlives a turn is not, and persisting it is not.
+
+**Five things the UI must not do.**
+
+1. **Do not call `joinRoom` or `setName`** — both reject `UNSUPPORTED`, always,
+   including `joinRoom` with the code `createRoom` just returned. To rename a
+   seat, build a new local game.
+2. **Do not branch on `capabilities.kind`.** Use `isLocalRoomCode(room.code)`.
+   And never pass a local code through `normalizeRoomCode` — it folds L→1 and
+   O→0, so `'LOCAL…'` comes back `'10CA1…'`, still well-formed and no longer
+   recognisable.
+3. **Do not render a ghost piece from `pendingMove`.** It is set and cleared
+   inside one synchronous block, so no notification ever carries it. There is no
+   latency to cover.
+4. **Do not render a partial rematch.** `RoomState.rematch` is never observable
+   as a pending offer here — `null` before the call, `null` after, never a
+   partial `accepted` list. `ResultOverlay.tsx:226-232`'s *"1 of 2 ready"* and
+   *"<name> wants a rematch"* are unreachable branches, not just wrong wording.
+5. **Do not persist anything seat-shaped.** Seats 1..n-1 are synthetic
+   identities minted per game. A test asserts the transport writes nothing to
+   storage across a whole game, rematch included.
+
+**Status and quality never move.** `idle → connecting → connected` on
+`connect()`, then `connected` until `dispose()` makes it `closed`. It **cannot**
+reach `reconnecting` or `failed` — those two strings do not occur in the file.
+`quality` keeps its initial value for the transport's whole life: `rttMs: null`,
+`grade: 'unknown'`. So `ConnectionBanner.tsx`, `useNarration.ts:155-159` and
+`copy.ts:36,46,257-261` — including *"This device is offline. Reconnect to Wi-Fi
+or mobile data"* — are unreachable on this backend rather than merely wrong.
+
+## 13:45 — Goku — [FYI] two corrections to published facts, and one thing that is load-bearing by accident
+
+**1. `onJoin` rejected every local room code. Fixed at `8b7b804`, Bob approved
+the scoped unfreeze of that one line.** `referee.ts:371` gated only on
+`normalizeRoomCode(code) !== state.code`; that fold's output can never contain an
+L or an O, and `LOCAL_ROOM_CODE_PREFIX` has both, so no string normalises to a
+`'LOCAL…'` code and seats 1..n could never join. Measured: `'LOCALA43Q5B'` →
+`'10CA1A43Q5B'`, ack `ROOM_NOT_FOUND` *"this referee hosts LOCALA43Q5B"* —
+quoting back the code it had just been handed — and 1 seat where 2 were
+expected. It now accepts an exact match first. That admits nothing new on the
+other two backends, and the argument is exhaustive rather than sampled: hosted
+and p2p mint from `ROOM_CODE_ALPHABET`, which excludes I, L, O and U, and on a
+string already over that alphabet every step of `normalizeRoomCode` is the
+identity. Corroborating figures: 0 of the alphabet's 32 characters are altered
+by it; 0 of 200,000 random 5-character codes over it normalise to anything else.
+Credit where due — Homer supplied the exhaustive form after I sent him a sample.
+
+**2. Correcting my own brief, for anyone else who was told the same thing:
+`src/net/hygiene.test.ts` does not exist.** The only hygiene test is
+`src/game/hygiene.test.ts`, and its `import.meta.glob('./*.ts')` covers
+`src/game` alone. Its "no second engine-to-wire projection" guard therefore does
+**not** cover `src/net`. Nothing mechanical stops a second projection landing
+beside `referee.ts`; today that rule holds because people obey it. Bob has the
+follow-up and owns it — do not write one on your own initiative.
+
+**3. Load-bearing by accident, so it gets written down.** No reconnect grace
+timer fires in local mode — but **not** because `LOCAL_CAPABILITIES` sets
+`reconnectGraceMs: 0`. `referee.ts:289` and `:754` arm `graceUntil` from
+`TIMING.reconnectGraceMs`, a module constant; `capabilities.reconnectGraceMs` is
+never read for control, only forwarded in `welcome` at `:365`. The real reason
+is that `localTransport.ts` never calls `setConnection` with a non-online state.
+Verified by grep today. Homer found this auditing his own doc and is correcting
+the comment. **Anyone adding a disconnect concept to local mode: the `0` will
+not protect you.** Right outcome, and the reason nobody chose it.
+
+**4. Unverified, passed on rather than asserted** (Homer's observation, my
+file): `startGame` seeds `hashSeed(code, seq)` at `referee.ts:457` while
+`rehydrateEngine` seeds `hashSeed(code, 0)` at `:934`. Different salts, so a
+migrated game's `firstSlot` differs from the original's. Probably benign,
+because the turn index is recovered by matching seat and due colours rather than
+from `firstSlot` — but neither of us traced it, it only affects P2P host
+migration, and it is outside my brief. Recorded so it is not lost.
