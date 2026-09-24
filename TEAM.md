@@ -1550,3 +1550,67 @@ nobody has reviewed at four players. `.o-game__bottom` would live in
 `src/ui/ui.css`, which is mine, so I can implement it the moment somebody
 decides it should exist. **I have deliberately not written it**, and Arthur
 explicitly asked me not to on his say-so. Two of us agreeing is a proposal.
+
+## 2026-09-24 — Bob, before the push
+
+**[FYI] The portrait HUD row is a pre-existing defect, and Howard is fixing it
+first.** `e2e/screenshots/10-device-small-phone-360.png` (09-16) shows the
+rail and size picker side by side at 360 px — rail crammed left with cards
+stacked, picker squeezed right, status line over the board. Arthur's grep
+today: `.o-game__bottom` has no rule and `.app-hud-bottom` is `row` outside
+the landscape override. Two independent lines agree; the row was never a
+design. Howard adds the portrait `column` rule in `ui.css`, own commit,
+Arthur reviews, pass-panel clearance recomputed against the stacked height.
+
+**[FYI] The push is blocked by a GitHub ruleset on `main`** ("Protection",
+created 09-18): changes must come through a pull request, and commits must
+have verified signatures. Agent-authored commits can never be "verified" —
+the emails belong to no GitHub account — so this is the user's decision.
+Nobody push; nobody rewrite history. All 29 commits are safe locally.
+
+## 15:05 — Howard — [FYI] closing my own 14:45 `[ACTION: Bob]`: the rule is written and in, at `71f20e9`
+
+My 14:45 entry ended *"I have deliberately not written it."* **That is now stale
+— it is written.** Bob authorised it on evidence, Arthur reviewed it and said
+go. Correcting my own entry rather than leaving an open action nobody needs to
+action.
+
+**What settled it was a rendered frame, not a sixth inference.**
+`e2e/screenshots/10-device-small-phone-360.png` has been committed since 16 Sep.
+Arthur and I each opened it independently: rail in the left half, size picker
+squeezed right, and the rail **already wrapped to one card per row at two
+players**. Four would be four rows. Six of us had been reasoning about intent
+from the cascade; the picture was in the repo the whole time.
+
+Caveat, so it does not travel silently: that frame **predates the `.o-app`
+height fix**, so its *vertical* positioning is stale and neither of us cited
+it. The left/right arrangement is horizontal and independent of that bug.
+
+The rule is `@media (orientation: portrait) { .o-game__bottom { flex-direction:
+column } }` in `ui.css`. Portrait-scoped on purpose: `layout.css` already owns
+the phone-landscape `column`, and `ui.css` wins ties against it by source order
+**by design** (`main.tsx:4-6` documents the ordering; Arthur verified), so an
+unscoped rule would have become a second definition of Linus's. Landscape is
+untouched.
+
+**[ACTION: Bob] A separate live defect the same frame proves, which I am
+flagging rather than absorbing** (Arthur's instruction, and it is outside my
+brief): check 2 is confirmed **by pixels** rather than by reasoning.
+`.o-sizes__hint` — *"Placing Green. Pick a size, then a space."* — renders
+plate-less, grey on green, directly over the board and is genuinely hard to
+read, while `.o-sizes__rule` — *"You must switch colours every turn…"* — sits
+in a white pill immediately below it and is perfectly legible. **Same size,
+same weight, one readable.** That is the exact pair check 2 names, and until
+today it was an inference from the CSS. It is one `--surface-2` pill in my
+`ui.css`, it predates offline mode, and it is live in **both** modes. I have
+not touched it.
+
+**One number for whoever does the screenshot pass**, replacing the vaguer ask
+in my 14:25 entry: column gives the rail the full **336px**, and four cards at
+the ~74px `PlayerRail`'s header budgets need `4×74 + 3×8 = 320px` — fitting
+with **16px spare**. That margin is thin, and the frame shows a *two-colour*
+card at ~102 CSS px rather than 74. So the precise check is: **photograph a
+four-player game at 360 and see whether `.o-rail__list` is on one row or two.**
+If two, this rule helped and did not finish the job. Neither Arthur nor I will
+estimate the four-player card width — four estimates have been overturned today
+and we are not adding a fifth.
