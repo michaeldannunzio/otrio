@@ -12,22 +12,36 @@ after.
 one shared phone — the handoff, the board's orientation, the setup screen, and every string
 that stops being true on one device — are in **"Offline mode"**, below the checks.
 
-> **Those screenshots are stale, and you should know how — corrected 2026-09-24, because I
-> had over-hedged this.** I wrote that all 21 "were taken before the scene was wired". That is
-> **wrong**, and I found it by opening two of them instead of citing them. The scene *is*
-> wired: the board, the table, the storage arms, the arm colour bars, the lighting and the cast
-> shadow all render. What is missing is **pieces** — `09-board-four-rings.png` is the proof, and
-> it is a striking frame: the `TextBoard` at the bottom shows four rings placed while the 3D
-> board above it is empty.
+> **Those screenshots are stale. Date every one against the commits either side of it before
+> you cite it — this note has now been wrong twice, in both directions.**
 >
-> So the hedge was a whole category where only one member was unknown — the exact
-> "unknowable, or unknowable *from here*?" trap this page documents, applied to my own
-> evidence. Board size on a phone, the storage arms and the table colour **are** testable from
-> these frames and I should have been reading them all along. **Only piece legibility is
-> genuinely unknown**, because no frame has a piece in it.
+> The 21 frames are `7ba926f`, **2026-09-16 01:38:12**. What landed in the hours after:
 >
-> Checks 1, 2, 3, 5 and 7 are about HUD and copy and stand as written — and **check 2 is now
-> confirmed by pixels rather than inferred**, see below.
+>     01:50:31  f80e321  "Pieces render. HUD shell fixed. Board lightened."
+>     02:01:34  e8cc3a9  "Board lightened 3.1x."  (Board.tsx, Table.tsx, tokens.css, tokens.ts)
+>     08:33:29  6ce9dd7  rail cards: 3x3 pip blocks -> ring glyph + digit
+>
+> So: **pieces do not render in any of them** (`09-board-four-rings.png` shows four rings in the
+> `TextBoard` and an empty 3D board above it — that is the bug, photographed 12 minutes before
+> the fix). **The board and table colours are two lightenings out of date.** **The HUD's vertical
+> position is the collapsed-shell bug.** **And the player-rail cards are a component that no
+> longer exists.**
+>
+> **I got this wrong twice and the second time is the instructive one.** The note originally said
+> the frames predate the scene being *wired*; that cause was wrong, since the board renders. I
+> then "corrected" it to say board size, the storage arms and table colour *were* testable from
+> these frames all along — which is **false**, and I wrote it into this file, because I checked
+> what the image showed and never checked what had landed after it. The original hedge was right
+> for the wrong reason and I replaced it with a wrong claim for a better-sounding reason.
+>
+> **The category this note was missing, and the one that caught three of us in one hour:**
+> *the components in these frames have since been replaced.* Empty board and light-mode-only were
+> listed. "The thing you are looking at is not the thing that ships" was not.
+>
+> **Only piece legibility is still genuinely unmeasured** — and it is unmeasured because no frame
+> has ever contained a piece, not because the frames are old.
+>
+> Checks 1, 2, 3, 5 and 7 are about HUD and copy and stand as written.
 >
 > **All 21 are also light mode, and that is not a coverage gap — it is a specific unknown.**
 > `BOARD_TINTS` is the same value in both themes on purpose; only the lighting moves. So
@@ -79,8 +93,10 @@ same size, same weight, and only one of them is readable, because one has a
 
 **Rule: any HUD text over the canvas gets a surface behind it, or it does not go there.**
 
-**Confirmed by frame, 2026-09-24 — this was previously an inference from the CSS.** Visible in
-both `10-device-small-phone-360.png` and `09-board-four-rings.png`: *"Placing Green. Pick a size,
+**Confirmed by frame, 2026-09-24 — previously an inference from the CSS.** This one survives the
+staleness above: `.o-sizes__hint` and `.o-sizes__rule` are unchanged since, and the defect is a
+missing background, which no later commit touched. Visible in both
+`10-device-small-phone-360.png` and `09-board-four-rings.png`: *"Placing Green. Pick a size,
 then a space."* renders as grey, plate-less text lying across the board edge and the table, and
 it is genuinely hard to read. Directly beneath it, *"You must switch colours every turn, so only
 green can move now."* sits in a white `--surface-2` pill and is perfectly legible. **Same size,
@@ -633,40 +649,55 @@ needs no change either way). **Nobody should write the rule on the strength of f
 if the row is deliberate, an unreviewed `flex-direction: column` at four players is a worse
 outcome than the ambiguity. What it needs is a decision or a frame, not another inference.
 
-### 8b. Resolved — by a frame, which beat all six inferences
+### 8b. Resolved — then the frame turned out to predate the fix it was cited for
 
-Howard opened `e2e/screenshots/10-device-small-phone-360.png`. I opened it too rather than take
-the read. **Rail in the left half, size picker squeezed right, and at *two* players the rail has
-already wrapped to one card per row** — Ada above Grace. Four players is four rows. Bob
-authorised the fix; it is portrait-scoped so `ui.css` does not silently become a second
-definition of the `column` that `layout.css` already owns in phone landscape:
+Howard opened `10-device-small-phone-360.png`; I opened it too rather than take the read; Bob
+authorised on it and Howard landed the portrait-scoped rule at `71f20e9`:
 
     @media (orientation: portrait) { .o-game__bottom { flex-direction: column; } }
 
-**One figure of mine the frame confirmed rather than merely agreed with.** I computed the row
-children at `(360 − 24 − 8) / 2 ≈ 164 px`; measuring the picker off the frame at 3× DPR gives
-**~173 CSS px**. That arithmetic was what the entire row/column argument rested on, so having it
-land against pixels matters more than the conclusion it supported.
+**Then Charles dated the frame, and most of what we read off it does not apply to the current
+code.** See the header note. The killer is the rail: those are the **nine-pip** cards, two colours
+× nine pips, which is why they are wide and why they had wrapped. `ReserveTray` (`Ring.tsx:124-162`)
+today renders **three** items per colour — a `RingGlyph` and a tabular digit. **We were all three
+reasoning from a component that no longer exists.**
 
-**What the frame does *not* settle, and must not be read as settling.** The column rule fixes the
-*horizontal* squeeze. It does not deliver check 3's "controls in the bottom third, where a thumb
-reaches" — in that frame the whole HUD including the size picker sits in the top ~45 % with ~40 %
-empty below. Howard correctly quarantined that as predating the `.o-app` height fix and did not
-cite it; I equally cannot confirm the fix from this frame, because it is stale on exactly that
-axis. **Two problems. This closes one.**
+**Withdrawn, explicitly:**
 
-**The precise ask for the next frame** — worth stating in this form rather than as "check the
-layout": *photograph a four-player game at 360 px and check whether `.o-rail__list` is on one row
-or two.* Column gives the rail the full 336 px and four cards at the ~74 px its header budgets
-need 320 px, a 16 px margin — but the frame shows a *two-colour* card at roughly **102 CSS px**.
-A four-player card carries three tray columns instead of six and should be narrower, but nobody
-has measured one, and after four overturned estimates in one day I am not supplying a fifth.
+- *"The rail has already wrapped at two players"* — true of pip cards, unknown of today's.
+- *"Four cards at ~74 px, 16 px spare"* — `PlayerRail.tsx:25-28` still describes *"a 3x3 block of
+  pips"* and argues **for** pips over the numbers that ship. A stale comment quoted as a current
+  budget, by three people, one of whom had written "a figure beats an assertion" an hour earlier.
+- My *"I opened it myself so the read is confirmed"* — I checked what the image showed and never
+  checked what shipped after it.
 
-**The lesson, and it is the cheapest one on this page.** Six inferences across three people —
-a dead class, a code comment, two dead CSS properties, a cascade order, a checklist item — all
-pointing the right way, none of them proof, and the thing that actually settled it was a PNG
-that had been sitting in the repo since 16 September costing nothing to open. **Before the next
-long inference chain: check whether the answer is already committed.**
+**What survives, and it is enough that I would not revert the rule:**
+
+1. **The structural fact never needed the frame.** `layout.css:120` declares no `flex-direction`,
+   so portrait is the initial value `row` from the cascade alone.
+2. **`.o-sizes`' inert `max-width: 30rem` and `margin-inline: auto`** — dead at a hard 164 px,
+   purposeful at full width. Independent of the rail, the frame, and the card design.
+3. **`.o-game__bottom` applied and undefined** while both BEM siblings are defined.
+4. **The argument I should have led with, computed from current CSS and untouched by any of
+   this.** `.o-sizes__group` is a flex row with `.o-size { flex: 1 1 0 }`. In a row the picker gets
+   ~164 px, so three buttons are `(164 − 16) / 3 ≈ **49 px**` wide — against a `--hit-min` of
+   **48 px** under `(pointer: coarse)`, i.e. the touch floor with 1 px to spare, for a control
+   whose own comment reads *"Big. This is the control a thumb hits under time pressure."* Column
+   gives the picker 336 px and the same three buttons `(336 − 16) / 3 ≈ **107 px**`. That is a
+   check 3 argument that needs no frame and no rail.
+
+**Still unsettled: severity.** Whether today's narrower cards are genuinely cramped at ~164 px
+cannot be derived. It is the first question all day that has not yielded to arithmetic, and it is
+bounded — one run of the `10-device-small-phone-360` case already in the suite, which would
+simultaneously settle the rule, retire the `~74 px` comment and replace the frame everyone is
+reasoning from. **Not started. Bob's and the user's call.**
+
+**The transferable part, and it is cheap.** Three of us reasoned from a screenshot committed eight
+days earlier without once checking its date against the commits either side. It read as current
+because it was in the repo and rendered. **A committed artefact is evidence of what was true when
+it was committed, and nothing else.** My own lesson from an hour before — "check whether the
+answer is already committed" — was right and dangerously incomplete: check whether the committed
+answer is still true.
 
 ### What not to touch
 
