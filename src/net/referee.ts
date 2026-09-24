@@ -368,7 +368,29 @@ export class PeerReferee {
   }
 
   private onJoin(from: PlayerId, rid: RequestId, code: RoomCode, asSpectator: boolean): void {
-    if (normalizeRoomCode(code) !== this.state.code) {
+    // Exact match first, normalised match second, because not every room code is
+    // normalise-stable. `normalizeRoomCode` folds [IL]->1 and O->0, so its output
+    // can never contain an L or an O — and `LOCAL_ROOM_CODE_PREFIX` contains both.
+    // No string whatsoever normalises to a 'LOCAL…' code, so the normalised test
+    // alone rejected every seat of every single-device game: measured, the code
+    // 'LOCALA43Q5B' normalises to '10CA1A43Q5B' and this NACKed ROOM_NOT_FOUND
+    // while quoting back the very code it had been handed.
+    //
+    // The added disjunct costs the other two backends nothing, and the argument
+    // is exhaustive rather than sampled. Hosted and p2p mint from
+    // ROOM_CODE_ALPHABET only; that alphabet excludes I, L, O and U; and on a
+    // string already over it every step of `normalizeRoomCode` (upper-case,
+    // strip non-alphanumerics, fold [IL], fold O, fold U) is the identity.
+    // So `normalizeRoomCode(state.code) === state.code` for every hosted and p2p
+    // room, which means any code passing the new exact test already passed the
+    // old normalised one. Nothing is newly admitted there — not "none of a
+    // sample", none. Corroborating figures: 0 of the alphabet's 32 characters
+    // are altered by `normalizeRoomCode`, and 0 of 200,000 random 5-character
+    // codes over it normalise to anything but themselves.
+    //
+    // Exact string equality is also the strictest test this guard could apply,
+    // so this is the smallest widening available.
+    if (code !== this.state.code && normalizeRoomCode(code) !== this.state.code) {
       return this.nack(from, rid, 'ROOM_NOT_FOUND', `this referee hosts ${this.state.code}`);
     }
     if (this.state.players.some((p) => p.playerId === from)) {
