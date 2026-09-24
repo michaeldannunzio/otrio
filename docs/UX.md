@@ -715,6 +715,53 @@ along with the bad. It is:
 
 One command, per component, and it would have caught all of this an hour earlier.
 
+### 9. The size picker has no horizontal touch floor — and that is the real defect
+
+Charles spotted this while checking my `49 px` arithmetic, and it turns the column rule from a
+comfort judgement into a robustness one. Verified against current CSS, no frame involved.
+
+**The constants, recomputed from tokens rather than from anyone's message:**
+
+    --hud-pad 12  --hud-gap 8  --space-2 8  --hit-min 48 (coarse pointer)
+
+    bar at 360 px    = 336.00
+    row, each child  = 164.00      col, each child = 336.00
+    row, per button  =  49.33      col, per button = 106.67
+                       +1.33 over the floor         +58.67 over
+
+**The part that matters: that 1.33 px is unprotected.** `.o-size` is `flex: 1 1 0` with
+`min-height: calc(var(--hit-min) + var(--space-4))` — 64 px — and **no `min-width` at all**.
+Nothing in `.o-sizes*` sets one. So the 48 px floor is enforced vertically and merely *emergent*
+horizontally: it holds only because the container happens to be 336 px wide today.
+`flex-shrink: 1` with no floor will go under 48 silently — no error, no failing test, no visible
+break — the moment anything narrows the picker's share.
+
+**And the codebase already has the pattern, applied to a less important control.**
+
+| | horizontal floor | vertical floor |
+|---|---|---|
+| `.o-iconbtn` — the menu button (`ui.css:184-189`) | `min-width: var(--hit-min)` | `min-height: var(--hit-min)` |
+| `.u-touch-target` — the shared utility (`utilities.css:37-41`) | `min-width: var(--hit-min)` | `min-height: var(--hit-min)` |
+| **`.o-size` — the primary game control** | **none** | `min-height: calc(--hit-min + --space-4)` |
+
+`.u-touch-target`'s own comment says it exists to *"meet the 44/48px minimum target"*. `.o-size`'s
+own comment reads *"Big. This is the control a thumb hits under time pressure."* **The one control
+both comments are describing is the one with no horizontal floor.** That is not a preference call;
+it is an inconsistency against the project's own published standard.
+
+**Recommendation, and it is a better fix than the column rule:** add
+`min-width: var(--hit-min)` to `.o-size`. Then the floor is enforced on both axes rather than
+inherited from whatever width the container happens to have, in every layout, at every
+breakpoint, in both modes — house rule 6's "structurally impossible rather than merely avoided",
+and this page's own "a published limit beats a standing agreement between two files".
+
+**It also right-sizes §8.** With a real `min-width`, the picker cannot drop under the floor in
+*any* arrangement, so the portrait column becomes a comfort improvement rather than the only thing
+standing between a player and a sub-floor control. That is the correct weight for it, and it is a
+much smaller thing to be wrong about.
+
+Owner: Howard (`src/ui/ui.css`). One declaration.
+
 ### What not to touch
 
 - **`deriveLocalView` and the three moving values.** They are the design, not a leak.
