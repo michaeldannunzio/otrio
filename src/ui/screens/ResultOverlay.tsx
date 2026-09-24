@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { PIECE_SIZES } from '../../net/protocol';
+import { PIECE_SIZES, isLocalRoomCode } from '../../net/protocol';
 import type { WinningLine } from '../../net/protocol';
 import {
   leaveRoom,
@@ -41,6 +41,7 @@ export function ResultOverlay() {
 
   const outcome = outcomeOf(room);
   const open = outcome.kind !== 'none' && !dismissed;
+  const onOneDevice = room !== null && isLocalRoomCode(room.code);
 
   useFocusTrap(panelRef, { active: open, onEscape: () => setDismissed(true) });
 
@@ -83,7 +84,20 @@ export function ResultOverlay() {
     );
   }
 
-  const isWinner = outcome.winner?.playerId === selfId;
+  /*
+   * Always name the winner on one device.
+   *
+   * `selfId` is the *active seat's* id, and once the game is finished the
+   * active seat falls back to seat 0 (Homer's contract; Goku confirmed it in
+   * the built transport). So an unqualified comparison makes exactly one seat
+   * in N produce "You win" with no name, and every other seat produce
+   * "<name> wins" -- a one-in-N inconsistency on the most photographed screen
+   * in the product, where "you" is being read by four people at once. (Arthur.)
+   *
+   * `isWinner` also feeds `describeWin` below, so this fixes the detail
+   * sentence with it rather than leaving the two to disagree.
+   */
+  const isWinner = !onOneDevice && outcome.winner?.playerId === selfId;
   const rematch = rematchView(room, selfId);
 
   return (
