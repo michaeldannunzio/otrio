@@ -523,6 +523,55 @@ generate the SVG from `tokens.ts`, or assert at build time that the five literal
 their tokens. A documented agreement between two files is the thing this page keeps finding
 at the bottom of defects; a published limit or a failing build is what replaces it.
 
+### 8. `.app-hud-bottom` is a ROW in portrait, and `.o-game__bottom` has no rule at all
+
+Howard asked me for one number — `.app-hud-bottom`'s height at 360×640 with four players —
+to close the "is the pass panel proud of the bottom HUD?" question with a subtraction instead
+of a browser. Going to get it, the premise did not survive. Three facts, each verified
+2026-09-24:
+
+1. **`.o-game__bottom` has no CSS rule anywhere in the repo.** It is applied at
+   `GameScreen.tsx:118` (`className="app-hud-bottom o-game__bottom"`). `grep -rn "o-game"`
+   across `src/styles/*.css` and `src/ui/*.css` returns only `.o-game`,
+   `.o-game[data-textboard='open']` and `.o-game__menu`. No `__bottom`.
+2. **The base rule sets no `flex-direction`** — `layout.css:119-125` is `display: flex;
+   align-items: center; gap: var(--hud-gap); width: 100%`, so the initial value `row` applies.
+3. **The only `flex-direction: column` for it is landscape-only** — inside
+   `@media (orientation: landscape) and (max-height: 500px)` at `layout.css:251`, the block
+   whose own comment reads *"Overlays stack vertically inside their rail."*
+
+**So at 360×640 portrait the player rail and the size picker are laid out side by side, not
+stacked.** Both are `width: 100%` flex items (`.o-rail`, `.o-sizes`), so each shrinks to
+roughly `(360 − 2×12 padding − 8 gap) / 2 ≈ 164 px`.
+
+**Why that matters beyond Howard's subtraction.** `.app-hud-bottom`'s height then becomes
+`max(rail, picker)` rather than their sum — so his 150–180 px estimate is likely high, and the
+pass panel is *more* proud of the bottom HUD than he assumed, not less. His arithmetic was
+sound; the model underneath it was not, and neither of us would have caught that from the
+panel's own numbers.
+
+**Is the row intended?** I cannot settle it, and I am not going to assert a defect I cannot
+prove. It forks cleanly:
+
+- **`.o-game__bottom` is a dead class**, the row is deliberate, and `.o-rail__list`'s
+  `flex-wrap: wrap` is what absorbs four cards into ~164 px — as two rows of two.
+- **`.o-game__bottom` is a missing rule**, and the intended column layout has been silently
+  absent.
+
+**The evidence leans to the second.** `PlayerRail`'s own header comment budgets *"~74px"* per
+card and says *"Four cards at ~74px fit a small phone with room to spare"* — 4 × 74 = 296 px,
+which is true at the full 360 px and false at 164 px. That comment was written by someone who
+expected the rail to own the width, i.e. expected a column. If they were right, four cards
+currently wrap to two rows on every phone in portrait, which is also the single most likely
+explanation for the bottom third feeling crowded.
+
+**This is check 3 with a name** — *"the fix that moves the picker down is only half the job if
+the rail then eats the bottom 40 %."* A wrapped two-row rail is exactly how it eats it.
+
+**Owner: Howard** (`.o-game__bottom` would live in `src/ui/ui.css`; `layout.css` is Linus's and
+needs no change either way). It is one grep to settle and it gates a figure two other people
+are now reasoning from, so it is worth settling before the screenshot pass rather than after.
+
 ### What not to touch
 
 - **`deriveLocalView` and the three moving values.** They are the design, not a leak.
