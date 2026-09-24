@@ -1114,3 +1114,78 @@ Howard: `createTransport('local', { seatNames })` type-checks today, and the
 half-edit. Goku: the field is optional because two backends have no use for it,
 so your arm must reject a missing or malformed `seatNames` rather than invent
 seats — that requirement is in the doc comment at the site.
+
+## 13:35 — Charles — [FYI] app icon landed at `00110da`; the day-one favicon 404 is closed
+
+The mark is the three Otrio pieces nested — large annulus, medium annulus,
+small solid **peg** — each quartered into the four seats, N purple / E red /
+S green / W blue from `PLAYERS[].seat`. Fills are the canonical identity
+colours in `tokens.ts` (`#7237b8 #e8501e #a2d733 #1cafd2`, verified identical
+in light and dark); ground is `COLORS.dark.bg`. Drawn on the user's explicit
+authorisation, not a Spin Master asset.
+
+    favicon.svg             1,513 B   512x512 vector  <- THE SOURCE
+    icon-192.png           11,378 B   192x192
+    icon-512.png           33,604 B   512x512
+    icon-maskable-512.png  28,770 B   512x512
+    apple-touch-icon.png   10,172 B   180x180
+    total                  85,437 B   (0.081 MB)
+
+**Edit `public/favicon.svg` only.** Every PNG is rasterised from it (commands
+in the README), so the vector and the bitmaps cannot drift.
+
+**`/favicon.svg` now exists.** `index.html` has linked it since the first
+commit and the file had never been in the repo — a silent 404 in production
+for the whole life of the project. Howard's line was already correct; it did
+not change. One line was added to `index.html` (`apple-touch-icon`, Bob's
+grant, confirmed with Howard first): iOS ignores manifest icons entirely for
+the home-screen tile and reads only that tag.
+
+**Precache is now 34 entries (33 unique), 1,731,726 B / 1.652 MB**, up 0.083 MB.
+
+**Two findings worth stealing, both the same shape — a default that fails
+silently:**
+
+1. `vite-plugin-pwa`'s `includeManifestIcons` defaults to **true**, which
+   re-globs every manifest icon on top of `globPatterns` and lists each one
+   **twice** in the precache. That is harmless *only* while both code paths
+   hash identically. One URL with two different revisions makes Workbox throw
+   `add-to-cache-list-conflicting-entries` and the worker fails to **install** —
+   no offline at all, from a green build. Now `false`; duplicate URLs 4 -> 1.
+2. Two things I check now whenever the entry count moves, and recommend to
+   anyone touching `public/`: that the count changed by what you expect, and
+   that no URL appears twice with *differing* revisions. Both are three lines
+   of node against `dist/sw.js`.
+
+README now says **three** transports, not two. `local` is documented as
+**contract-only**, because `createTransport('local')` still throws
+`UNSUPPORTED` at the time of writing — documenting it as working would be the
+same defect as the favicon: a doc that reads fine and is false.
+
+## 13:35 — Charles — [FYI] refining Bob's typecheck note: `npm run typecheck` is NOT the trap
+
+Bob's 2026-09-24 entry says to use `-p tsconfig.app.json` because
+`-p tsconfig.json` is a solution config with `files: []` and exits 0 having
+checked nothing. **That is exactly right about `-p`, and I measured it:**
+
+    tsc -p tsconfig.json       ->   0 src files checked
+    tsc -p tsconfig.app.json   -> 104 src files checked
+
+But `npm run typecheck` is **`tsc -b --noEmit`**, and `-b` on a solution file
+builds every referenced project, which is what `-b` is for. Measured on the
+same tree:
+
+    tsc -b --noEmit --force    -> 115 src files, 6 server files, vite.config.ts
+
+So `npm run typecheck` checks **all three projects** and is not the trap. I can
+also demonstrate it rather than just count: it failed on me at 13:05 with
+`src/main.tsx(76,31): error TS2345` while Howard was mid-edit, which is a live
+proof it reaches `src/`.
+
+**Why this matters rather than being pedantry:** `-p tsconfig.app.json` alone
+checks `src/` but **not** `server/` and **not** `vite.config.ts`. If everyone
+switches to it as their verification command, the server and the build config
+stop being checked by anybody and nothing announces that. Use
+`npm run typecheck` as the gate; reach for `-p tsconfig.app.json` only when you
+want a faster app-only loop. Correcting a detail, not the decision — Bob's
+underlying point (do not trust `-p tsconfig.json`) stands and is measured above.
