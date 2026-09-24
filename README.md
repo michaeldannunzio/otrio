@@ -362,14 +362,31 @@ are that file's canonical identity colours (`#7237b8 #e8501e #a2d733 #1cafd2`,
 identical in both themes); the ground is its `COLORS.dark.bg`. Drawn on the
 user's explicit authorisation, 2026-09-24 — it is not a Spin Master asset.
 
-**Invariant, because an SVG cannot import a TypeScript token and this is
-load-bearing in a way that is invisible from either side:** the ground hex in
-`favicon.svg` must equal `COLORS.dark.bg`. The manifest's `background_color`
-imports that token, and the splash screen is supposed to be seamless with the
-icon drawn on top of it — that seam is the whole reason the splash is dark (see
-`vite.config.ts`). Change the token without re-exporting the icon and you get a
-dark tile on a slightly different dark splash, which reads as a rendering bug
-and is very hard to attribute.
+**The icon restates five values from `tokens.ts`, and an SVG cannot import a
+TypeScript module — so they are asserted by
+[`src/styles/iconTokens.test.ts`](src/styles/iconTokens.test.ts)** rather than
+kept in step by hand. The ground must equal `COLORS.dark.bg`, and the four
+wedge colours must equal the four `COLORS.*.playerN` identity fills. The test
+checks the *counts* as well as the values, so a dropped quadrant fails too —
+with a quadrant deleted the colour set is still correct and only the count
+catches it.
+
+Why it is worth a test and not a note: this makes the icon a **fifth**
+definition of the player colours, and they were once defined four times in four
+disagreeing palettes, with the 3D board and the 2D UI rendering different
+colours for the same player. A retint of `tokens.ts` drifts the icon silently,
+and nobody retinting a palette has any reason to think about artwork. The
+result is a launcher icon whose wedges no longer match the board it launches —
+an identity failure in the one asset whose whole job is identity. The ground
+has the same exposure for a subtler reason: the manifest's `background_color`
+imports that token so the splash is seamless with the icon on top of it, and a
+drift there gives a dark tile on a *slightly* different dark splash, which
+reads as a rendering bug and is very hard to attribute.
+
+Note the icon tracks `playerN`, the theme-independent identity fill — **not**
+`playerNUi`, which is theme-dependent and, in the light theme, happens to be
+the same hex for purple. Binding the icon to the `Ui` variant would pass today
+and break on the next theme retint for no visible reason.
 
 Every PNG is rasterised from that SVG, so the vector and the bitmaps cannot
 drift. To regenerate after editing it:
