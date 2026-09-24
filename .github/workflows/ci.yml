@@ -70,8 +70,10 @@ jobs:
       #
       # The precache line matters for a different reason: it is what a phone
       # downloads and stores *before* it can work offline, and it grows
-      # silently whenever anyone adds a file to public/. It was 1.57 MB over 29
-      # entries on 2026-09-24. Treat a jump as a question, not a pass.
+      # silently whenever anyone adds a file to public/. It was 1.652 MB over
+      # 34 entries (33 unique) on 2026-09-24. Treat a jump as a question, not a
+      # pass — and if the entry count moves, check dist/sw.js for a URL listed
+      # twice with DIFFERENT revisions: that makes the worker fail to install.
       - name: Report bundle sizes
         if: success()
         run: |

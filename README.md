@@ -145,26 +145,39 @@ from anywhere, nothing to install. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md
 
 ## Transports
 
-The game can move data between players two different ways. Both implement the
-same `Transport` interface in [`src/net/transport.ts`](src/net/transport.ts), so
-the rest of the app does not know or care which is in use.
+The game can move data between players three different ways. All three
+implement the same `Transport` interface in
+[`src/net/transport.ts`](src/net/transport.ts), so the rest of the app does not
+know or care which is in use.
 
-| | `hosted` | `p2p` |
-|---|---|---|
-| How | Node WebSocket server relays every move | WebRTC data channels, phone to phone |
-| Server's role | Authoritative relay, for the whole game | Introduces peers, then goes idle |
-| Secure context needed | No | **Yes** — see above |
-| Works across networks | Yes | Usually; needs TURN in bad NAT cases |
-| Latency in one room | One hop to the server and back | Direct |
+| | `hosted` | `p2p` | `local` |
+|---|---|---|---|
+| How | Node WebSocket server relays every move | WebRTC data channels, phone to phone | Pass-and-play, one device, no network |
+| Server's role | Authoritative relay, for the whole game | Introduces peers, then goes idle | None — there is no server |
+| Secure context needed | No | **Yes** — see above | No |
+| Works across networks | Yes | Usually; needs TURN in bad NAT cases | N/A |
+| Latency in one room | One hop to the server and back | Direct | None |
+
+All three drive the same referee in `src/net/referee.ts` — one rules
+implementation, never a second one. `local` instantiates it in-process with a
+synthetic identity per seat, which is why pass-and-play cannot drift from the
+networked rules.
 
 Set the backend with `VITE_TRANSPORT` in `.env.local` (copy `.env.example`):
 
 ```sh
-VITE_TRANSPORT=hosted   # or p2p
+VITE_TRANSPORT=hosted   # or p2p, or local
 ```
 
+**`local` is contract-only as of 2026-09-24.** `LOCAL_CAPABILITIES`,
+`LocalTransportConfig` and the normative "SINGLE-DEVICE BACKEND" section in
+`transport.ts` are published, but `src/net/localTransport.ts` does not exist
+yet, so `createTransport('local')` throws `UNSUPPORTED` on purpose rather than
+silently handing back a networked backend. Delete this paragraph when that file
+lands.
+
 `TransportKind` is designed to be switchable at runtime — from a URL parameter
-or a settings toggle — so the two can be compared without a rebuild. Check the
+or a settings toggle — so they can be compared without a rebuild. Check the
 app's setup code for whether a `?transport=` parameter is wired up, since that
 is owned outside this config.
 
@@ -346,23 +359,54 @@ the denylist actually buys is those URLs staying reachable from the address bar
 once a worker is installed, and cover for any future non-WebSocket `GET` under
 `/api`.
 
-**There are no icons in the manifest, and that is a gap, not an oversight.**
-`public/` contains textures and nothing else: no logo, no favicon (the
-`/favicon.svg` that `index.html` links has never existed in this repo), no
-brand source anywhere outside `node_modules`. **Chrome will not offer to
-install a PWA without an icon of at least 192px, so the app is not yet
-installable on Android.** iOS "Add to Home Screen" still works, with a
-screenshot for a tile — and note that iOS ignores manifest icons entirely for
-that tile; it reads `<link rel="apple-touch-icon" sizes="180x180" href="…">`
-from `index.html` and nothing else.
+### The icon
 
-Adding artwork is a brand decision, not a build one. What is deliberately *not*
-here is a `<link>` pointing at an icon file that does not exist: this repo
-already carries one of those (`/favicon.svg`, linked since the first commit,
-never added) and it fails as a silent 404 rather than an error. When a source
-mark lands in `public/`, three things go in together: 192 / 512 / maskable
-entries in the `manifest` block of `vite.config.ts`, a 180×180
-`apple-touch-icon` PNG, and the one `<link>` in `index.html` that points at it.
+`public/favicon.svg` is the **source**, and the only file to edit. It is the
+three Otrio pieces nested — large annulus, medium annulus, small solid peg —
+each quartered into the four seats, north purple / east red / south green /
+west blue, matching `PLAYERS[].seat` in `src/styles/tokens.ts`. The four fills
+are that file's canonical identity colours (`#7237b8 #e8501e #a2d733 #1cafd2`,
+identical in both themes); the ground is its `COLORS.dark.bg`. Drawn on the
+user's explicit authorisation, 2026-09-24 — it is not a Spin Master asset.
+
+Every PNG is rasterised from that SVG, so the vector and the bitmaps cannot
+drift. To regenerate after editing it:
+
+```sh
+BG='#0b0e13'
+for s in "192 icon-192.png" "512 icon-512.png" "180 apple-touch-icon.png"; do
+  magick -background "$BG" -density 600 public/favicon.svg \
+    -resize ${s%% *}x${s%% *} -alpha remove -alpha off -strip public/${s#* }
+done
+magick -background "$BG" -density 600 public/favicon.svg -resize 424x424 \
+  -gravity center -extent 512x512 -alpha remove -alpha off -strip \
+  public/icon-maskable-512.png
+```
+
+**Why the maskable icon is a separate file** rather than
+`purpose: 'any maskable'` on one entry: Android crops a maskable icon to its
+launcher's own shape, keeping only a circle 80% of the width. This mark fills
+91% of its canvas, so a shared entry would lose its outer ring on every Android
+launcher. The maskable file is the same SVG at 82.8%, centred — measured at
+75.3% of half-width, inside the safe circle.
+
+**Why `apple-touch-icon` is in `index.html` and not the manifest**: iOS Safari
+ignores manifest icons entirely for the home-screen tile and reads only that
+tag. It is the one line in that file that is not the UI owner's.
+
+Contrast of each segment against the ground, since the inter-ring gaps are
+ground-coloured and that is what makes three pieces read as three:
+
+| | purple | red | green | blue |
+|---|---|---|---|---|
+| on `#0b0e13` (shipped) | 2.72 | 5.15 | 11.33 | 7.47 |
+| on `#e8ecf3` | 6.00 | 3.17 | **1.44** | 2.18 |
+
+Green at 1.44 is why the ground is dark. And one fact worth recording so nobody
+goes hunting for a better background: **purple's identity fill cannot reach 3:1
+against any ground that exists.** Solving for the luminance that puts it at
+exactly 3.00 returns a negative number, and against pure black it tops out at
+2.95. 2.72 is near the ceiling, not a compromise that can be tuned away.
 
 One more known cost: a web manifest colour cannot be theme-aware, so
 `theme_color` / `background_color` follow the same single light value
@@ -455,13 +499,19 @@ little.
 > tree that also carried another author's uncommitted `src/net/protocol.ts`
 > work, so treat it as "green including that", not "green without it".
 >
-> Service worker, same run: **29 precache entries (28 unique — the manifest is
-> listed twice, at an identical revision, so Workbox dedupes it rather than
-> throwing `add-to-cache-list-conflicting-entries`), 1,645,733 bytes
-> (1.569 MB)**. Largest five, in bytes: `three` 688,700, `react` 238,032, app
-> entry 210,379, `textures/hd/board_albedo.webp` 74,066,
-> `textures/hd/table_normal.webp` 73,526. All 17 texture files are in it, and
-> `assets/three-CoY_PLFB.js` was grepped out of `dist/sw.js` by name.
+> Service worker, same run: **34 precache entries (33 unique), 1,731,726 bytes
+> (1.652 MB)**. Largest five, in bytes: `three` 688,700, `react` 238,032, app
+> entry 210,516, `textures/hd/board_albedo.webp` 74,066,
+> `textures/hd/table_normal.webp` 73,526. All 17 texture files are in it, all
+> five icon files are in it, and `assets/three-*.js` was grepped out of
+> `dist/sw.js` by name.
+>
+> The one remaining duplicate URL is `manifest.webmanifest`, listed twice at an
+> identical revision, so Workbox dedupes rather than throwing
+> `add-to-cache-list-conflicting-entries`. Every duplicate's revisions are
+> compared, not assumed — a URL appearing twice with *different* revisions
+> makes the worker fail to install, which is a total loss of offline, so it is
+> worth the check whenever the entry count moves.
 >
 > **Not verified:** nobody has opened this in a browser, installed it, or put a
 > device in airplane mode. Everything above is build output and emitted-file

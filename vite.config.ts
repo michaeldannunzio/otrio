@@ -138,6 +138,18 @@ function pwa() {
     registerType: 'autoUpdate',
     injectRegister: 'auto',
 
+    /* The plugin defaults this to true, which adds every manifest icon path as
+       an EXTRA glob over publicDir - on top of `workbox.globPatterns` below,
+       which already precaches them. The result is each icon listed twice in
+       the precache manifest.
+       Today that is harmless only because both copies hash identically:
+       Workbox throws `add-to-cache-list-conflicting-entries` and the service
+       worker fails to INSTALL - i.e. no offline at all - the moment one URL
+       carries two different revisions. Relying on two code paths producing
+       byte-identical output is not a guarantee anybody chose. One owner for
+       the icon entries, and it is globPatterns. */
+    includeManifestIcons: false,
+
     manifest: {
       name: 'Otrio',
       short_name: 'Otrio',
@@ -162,15 +174,28 @@ function pwa() {
       theme_color: COLORS.light.bg,
       background_color: COLORS.light.bg,
 
-      /* NO `icons`, and that is a deliberate gap, not an oversight.
-         Checked public/ on 2026-09-24: it holds textures and nothing else.
-         There is no logo, no favicon (index.html's /favicon.svg has never
-         existed in this repo) and no brand source anywhere outside
-         node_modules. Chrome will not offer to install a PWA without a
-         >=192px icon, so THIS MANIFEST IS NOT YET INSTALLABLE ON ANDROID -
-         iOS "Add to Home Screen" still works, with a screenshot for an icon.
-         Inventing a logo is a brand decision, not a build one. The moment an
-         icon source lands in public/, add 192 / 512 / maskable here. */
+      /* The mark: the three Otrio pieces nested - large annulus, medium
+         annulus, small solid PEG (it is not a ring; see docs/RULES.md) - each
+         quartered into the four seats, N purple / E red / S green / W blue,
+         matching `PLAYERS[].seat`. Drawn on the user's explicit authorisation
+         2026-09-24, recorded in SHOP.md; it is not a Spin Master asset.
+
+         `public/favicon.svg` is the SOURCE. Every PNG below is rasterised
+         from it - see the README for the exact commands - so the vector and
+         the bitmaps cannot drift. Edit the SVG, never the PNGs.
+
+         `maskable` is a SEPARATE file, not a `purpose: 'any maskable'` on one
+         entry. Android shrink-wraps a maskable icon to its own shape and
+         crops everything outside a circle of 80% of the width; this mark
+         fills 91% of its own canvas, so the shared-entry version would have
+         its outer ring sliced off on every Android launcher. The maskable
+         file is the same SVG rendered at 82.8% and centred, measured at 75.3%
+         of half-width - inside the safe circle with room to spare. */
+      icons: [
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
     },
 
     workbox: {
@@ -182,8 +207,13 @@ function pwa() {
          asks for; `webmanifest` for the manifest itself.
 
          .map is excluded on purpose - 3.9 MB of source maps, fetched only
-         when devtools are open, which never happens with no network. */
-      globPatterns: ['**/*.{js,css,html,webp,json,svg,webmanifest}'],
+         when devtools are open, which never happens with no network.
+
+         `png` and `svg` carry the app icons. They are not needed to RUN
+         offline - a launcher reads its icon once at install time - but
+         omitting them would mean an installed app whose icon 404s the first
+         time anything re-reads the manifest offline, for 0.3 MB. */
+      globPatterns: ['**/*.{js,css,html,webp,png,json,svg,webmanifest}'],
 
       /* See the const for why this is stated rather than inherited. */
       maximumFileSizeToCacheInBytes: PRECACHE_MAX_FILE_BYTES,
