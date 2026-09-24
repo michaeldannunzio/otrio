@@ -333,6 +333,12 @@ pinned board agree only because `boardYawForSeat(SOUTH) === 0`. Nobody designed 
 found it by computing both ends. If anyone ever pins to a different seat, that diagram silently
 stops describing the screen and nothing fails.
 
+**Updated 13:3x — it is now two dependents, not one.** Howard's `LocalSetup` seat labels say
+"Purple — top", so the setup screen's words depend on the same identity. Both sites are
+commented, and Howard re-derived `boardYawForSeat(SOUTH) === 0` at both ends himself before
+pinning rather than taking it from me — correctly, because it is now load-bearing for three
+files and not just a review note.
+
 ### 3. The friendly-game badge — replace the section; do not flip the flag
 
 `SettingsSheet.tsx:155-159` renders *"Friendly game — one of the phones is running the rules
@@ -413,7 +419,7 @@ flags across `src/ui/**` and `src/store/**` on 2026-09-24. **Broken** = a player
 | `SettingsSheet.tsx:169-173` | "Show the room code" — `joinRoom` rejects every input (Homer), and `isPlausibleRoomCode` is `false` for a local code, so the offer cannot work. **Already fixed** at 13:18. Verified. **But `RoomInfoSheet:194-208` still carries *"Anyone with this can join, if there is a free seat."*** — unreachable in local mode now, so harmless, and worth leaving exactly as it is rather than adding a branch for a path nobody can take. | fixed |
 | `SettingsSheet.tsx:222-228`, `:240-244` (`LeaveSheet`) | Leave copy: *"the others keep playing without you"*, *"there is no reconnect window"*, *"your seat is held for a while"*, and for seat 0 *"Someone else will take over as host."* On one phone, leaving ends the game for everyone in the room, physically. Say that. | broken |
 | `ResultOverlay.tsx:86,108` | `isWinner` compares to `selfId`, which at `finished` is seat 0 (Bob). **Seat 0 wins → "You win", no name. Any other seat → "<name> wins", correct.** A one-in-N inconsistency on the most photographed screen in the product. Always name the winner. | broken |
-| `ResultOverlay.tsx:226-232` | Rematch: *"You're in. 1 of 2 ready"*, *"<name> wants a rematch"*. Nobody to wait for; should be a plain "Play again". **Whether seat 0 alone can actually restart a local room is Goku's to answer — ask him, do not assume.** | broken |
+| `ResultOverlay.tsx:226-232` | **I was wrong here and the correction is worth more than the original.** I read the rematch copy as broken. Goku verified *by execution* that `RoomState.rematch` is never observable as a pending offer on this backend — `null` before the call and `null` after, because no turn of the event loop passes while it is partial. So `rematch.offered` is always `false` locally, the existing `!offered` branch already renders the plain "Play again" I asked for, and the two "waiting on someone" branches are **unreachable rather than wrong** — and still correct online. Changing them would have been a no-op locally and a regression online. **No change needed.** | my error |
 | `PlayerRail.tsx:158-163` | A `ConnectionDot` on every card, all identical and permanently online, in the one component that must fit four cards into 360 px (its own comment budgets ~74 px each). Drop it; give the width to the name. | noise |
 | `LobbyScreen.tsx` (all) | Not reached — Bob's "no lobby in local mode", the UI calls `startGame()` immediately. Make it **structurally** unreachable rather than conditionally silent; every line in it is wrong here. | — |
 | `MoveLog.tsx:74-80` | *"Moves marked ~ were recovered after a reconnection."* Gated on `hasInferred`, which only a snapshot gap sets (`moveLogStore.ts:160`), and there are no gaps. **No change needed** — said out loud so nobody "fixes" it. | none |
@@ -628,6 +634,40 @@ The part worth being precise about: the invariant is what made the fact **citabl
 someone else**. Howard corrected his own call site off Mario's prop doc, without either of
 them talking to the other. A measurement in one agent's head could never have done that —
 it would have needed a conversation, and the conversation is the thing that doesn't happen.
+
+**A hex does not identify a role — and this is not a corner case, it is three colours in four.**
+Charles hit this writing the icon guard: the icon's purple `#7237b8` matches **both**
+`light.player1` and `light.player1Ui`, so a hex match cannot tell you which field it came from.
+Binding his assertion to the wrong one would have passed that day and failed on the next
+retint, for a reason nobody reading the test could see. He checked instead of assuming, which
+is the only reason it was caught.
+
+Verifying it, I found the collision is wider than either of us thought. Computed from
+`tokens.ts` on 2026-09-24:
+
+| | light base | light Ui | dark base | dark Ui | collides |
+|---|---|---|---|---|---|
+| purple | `#7237b8` | `#7237b8` | `#7237b8` | `#b877ff` | **in light** |
+| red | `#e8501e` | `#c63100` | `#e8501e` | `#ff6430` | never |
+| green | `#a2d733` | `#517400` | `#a2d733` | `#a2d733` | **in dark** |
+| blue | `#1cafd2` | `#00738c` | `#1cafd2` | `#1cafd2` | **in dark** |
+
+So **three of the four collide, and not in the same theme** — purple in light, green and blue
+in dark, red never. That distribution is the dangerous part: whichever theme you happen to
+check in, you get a *different* wrong answer about which colours are safe to identify by hex,
+and one colour always looks like it proves the rule.
+
+The practical form, which is the same lesson as "name the backdrop" one level up:
+**cite the role, never the value.** `players[i].rim` is checkable; `#a2d733` is not, because it
+is two different roles depending on which theme you read it in. Anything in this file or in a
+comment that pins a claim to a hex rather than a token name is already ambiguous for three
+players in four.
+
+**And a set is not a count.** Same guard, exercised in both directions on a scratch copy: change
+one literal and the colour-set check fails; **delete an entire quadrant and the set check still
+passes**, because the remaining wedges still contain every expected colour. Only counting the
+fills catches it. A three-quarters icon with a perfect palette is exactly the kind of green
+check this page exists to distrust.
 
 **Publish intermediate figures, not conclusions.** Same family, and the sharpest version
 of it. Linus found a wrong conclusion inside a file he cannot see, using four numbers
