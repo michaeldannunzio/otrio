@@ -9,8 +9,7 @@
  *   - `p2p`    — WebRTC data channels between browsers, refereed by an elected
  *     host peer, with no server in the game path.
  *   - `local`  — no link at all: two to four people passing one device, with
- *     the referee running in this tab. **Not wired up yet** — see
- *     `createTransport`.
+ *     the referee running in this tab.
  *
  * Everything above this file talks to a `Transport` and never imports
  * `WsTransport` or `RtcTransport` directly. Import from `../../net`, call
