@@ -544,19 +544,26 @@ of a browser. Going to get it, the premise did not survive. Three facts, each ve
 stacked.** Both are `width: 100%` flex items (`.o-rail`, `.o-sizes`), so each shrinks to
 roughly `(360 − 2×12 padding − 8 gap) / 2 ≈ 164 px`.
 
-**Why that matters beyond Howard's subtraction.** `.app-hud-bottom`'s height then becomes
-`max(rail, picker)` rather than their sum — so his 150–180 px estimate is likely high, and the
-pass panel is *more* proud of the bottom HUD than he assumed, not less. His arithmetic was
-sound; the model underneath it was not, and neither of us would have caught that from the
-panel's own numbers.
+**Why that matters beyond Howard's subtraction.** `.app-hud-bottom`'s height becomes
+`max(rail, picker)` rather than their sum. His arithmetic was sound; the model underneath it
+was not, and neither of us would have caught that from the panel's own numbers.
+
+**Corrected — I said his estimate was "likely high" and that was my own unchecked step.**
+Howard withdrew the 150–180 px rather than adjusting it, and he is right to. A rail squeezed to
+164 px cannot fit four cards at the ~74 px its own header budgets (`4 × 74 + 3 × 8 = 320`), so
+`.o-rail__list`'s `flex-wrap: wrap` takes it to two rows — and a two-row rail may come out
+**taller** than a stacked one, not shorter. **The direction is not determined.** One wrong model
+was enough; neither of us should publish a second guess on top of it.
 
 **Is the row intended?** I cannot settle it, and I am not going to assert a defect I cannot
 prove. It forks cleanly:
 
 - **`.o-game__bottom` is a dead class**, the row is deliberate, and `.o-rail__list`'s
   `flex-wrap: wrap` is what absorbs four cards into ~164 px — as two rows of two.
-- **`.o-game__bottom` is a missing rule**, and the intended column layout has been silently
-  absent.
+- **`.o-game__bottom` is a missing rule**, and something that was meant to be there is not.
+  **I originally wrote this as "the intended column layout has been silently absent" — that
+  overstated it and Charles was right to push.** Nothing establishes what the missing rule
+  *was*; only that a sibling of two defined ones is undefined.
 
 **The evidence leans to the second.** `PlayerRail`'s own header comment budgets *"~74px"* per
 card and says *"Four cards at ~74px fit a small phone with room to spare"* — 4 × 74 = 296 px,
@@ -568,9 +575,38 @@ explanation for the bottom third feeling crowded.
 **This is check 3 with a name** — *"the fix that moves the picker down is only half the job if
 the rail then eats the bottom 40 %."* A wrapped two-row rail is exactly how it eats it.
 
+**Two counter-arguments were raised against this staying open, and both are wrong. Recorded
+because one of them would have closed it.**
+
+1. *"A `.o-game__bottom` rule wouldn't change the direction anyway."* **False, verified.** It is a
+   **co-class on the same element** as `.app-hud-bottom` (`GameScreen.tsx:118`), so both are
+   specificity `(0,1,0)` and source order decides — and `main.tsx:4-6` carries an explicit
+   comment that `styles/index.css` *"must come before any component stylesheet"*, with
+   `ui.css` imported later via `App.tsx:21`. **`ui.css` therefore wins ties against
+   `layout.css` by design.** A `.o-game__bottom { flex-direction: column }` would have worked,
+   and that ordering is precisely the mechanism you would use to override the shell for one
+   instance. This does not prove the missing rule *was* that — it removes the reason to assume
+   it wasn't.
+2. *"Its defined sibling `.o-game__menu` carries `flex: none`, a flex-child hint, so this class
+   was a child hint too."* **The analogy does not transfer.** `.o-game__menu` is applied to the
+   `IconButton` at `GameScreen.tsx:107` — a **child** of `.app-hud-top` — so a child hint is what
+   it should carry. `.o-game__bottom` is on the **container**. A container co-class is exactly
+   where a container-level property belongs.
+
+**Where it actually stands: five independent signals, none of them proof, all pointing one way.**
+(i) one of three `o-game` BEM nodes undefined while the other two are defined; (ii) `PlayerRail`'s
+"~74 px × four fits a small phone", true at 360 and false at 164; (iii) `.o-sizes`'s
+`max-width: 30rem` **and** `margin-inline: auto` — a 480 px cap and an auto-centre are both dead
+code at a hard 164 px and both purposeful at full width (Howard's find, and the strongest of the
+five, from an independent file); (iv) check 3's "the rail eats the bottom 40 %"; (v) the cascade
+ordering above. Against them: the base rule does read as deliberate in landscape, and nobody has
+seen it render.
+
 **Owner: Howard** (`.o-game__bottom` would live in `src/ui/ui.css`; `layout.css` is Linus's and
-needs no change either way). It is one grep to settle and it gates a figure two other people
-are now reasoning from, so it is worth settling before the screenshot pass rather than after.
+needs no change either way). **Nobody should write the rule on the strength of five signals** —
+if the row is deliberate, an unreviewed `flex-direction: column` at four players is a worse
+outcome than the ambiguity. It is with Bob, correctly. What it needs is a decision or a frame,
+not another inference.
 
 ### What not to touch
 
