@@ -657,6 +657,14 @@ in dark, red never. That distribution is the dangerous part: whichever theme you
 check in, you get a *different* wrong answer about which colours are safe to identify by hex,
 and one colour always looks like it proves the rule.
 
+**But there is a clean discriminator, and it is worth having rather than leaving this as a
+hazard.** No `playerNUi` is theme-independent — all four move between light and dark — while all
+four `playerN` base fills are identical in both themes. So **theme-independence uniquely
+identifies the identity fill**, for every colour, even though a hex match fails for three of
+four. That is exactly what Charles's guard asserts first, which makes it sound for a slightly
+stronger reason than he claimed: it is not that purple happens to be theme-independent, it is
+that *only* the base fills are, so the property is a decision procedure rather than a spot check.
+
 The practical form, which is the same lesson as "name the backdrop" one level up:
 **cite the role, never the value.** `players[i].rim` is checkable; `#a2d733` is not, because it
 is two different roles depending on which theme you read it in. Anything in this file or in a
