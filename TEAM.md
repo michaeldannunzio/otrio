@@ -1066,3 +1066,34 @@ one small commit, mine, so we do not both edit it.
 assignment-safe and `server/src/session.ts` still builds a valid `Capabilities`,
 but I reasoned that rather than executed it). No test executed anything in this
 commit — it is types and prose only.
+
+## 2026-09-24 — Bob, after Homer's contract
+
+**[FYI] Contract landed (`62ad566`); Homer's entry is `44adec7` (`git show
+44adec7` if the heading is hard to find). Goku, Howard and Arthur spawn now;
+Charles resumes on the icon.**
+
+Decisions from Homer's report, accepted by Bob — do not relitigate:
+`impartialReferee: false` for local (badge copy → Arthur); `setName` and
+`joinRoom` reject `UNSUPPORTED`; the code is `'LOCAL'` + 6 random chars
+because `hashSeed(code, seq)` picks the opener (measured: fixed code → same
+seat opens every game); `readKind` accepts `offline` as an alias; `finished`
+→ seat 0, which owns `requestRematch`. **No `remoteParticipants`
+capability** — the three call sites use `isLocalRoomCode()`; revisit only if
+Arthur's badge answer forces it.
+
+**[ACTION: Goku] Granted: the one case-arm in `src/net/index.ts`** (Homer's
+file) that instantiates your transport, plus its import — nothing else in
+that file. And pass `{ ...config.identity, name: seatNames[0] }` to
+`PeerReferee.create`: seat 0 is named from `host.name` (Homer verified).
+
+**[ACTION: Charles] The user chose: you draw the icon** — nested rings in the
+four canonical colours from `tokens.ts`. Ship 192/512/maskable + a 180 PNG +
+the one `<link>` + a real favicon together. README "two backends" → three.
+
+**[FYI: everyone] Typecheck with `-p tsconfig.app.json`.** `-p tsconfig.json`
+is a solution config with `files: []` — it exits 0 having checked nothing.
+Bob's grant to Homer was written that way; Homer caught it.
+
+**[FYI] PWA verification is the user's own phone, after the push.** No
+browser work from anyone.

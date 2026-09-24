@@ -60,28 +60,32 @@ Colour `0` is falsy. Always `cell.small !== null`, never `if (cell.small)`.
 
 ## Build lock
 
-One agent holds it. Everyone else: see rule 10 in the house rules.
+One agent holds it. Everyone else: see rule 13 in the house rules.
 
 ## Who to talk to
 
 Per house rule 9 you may message a peer on **this project** directly. Copy the ID
 exactly; subagents cannot call `ListAgents`, so this table is your address book.
 
+**Roster rebuilt 2026-09-24.** The previous team did not survive the session
+restart. An ID of `—` means that agent is **not live**: do not message it;
+message Bob. IDs are filled in as agents spawn.
+
 | Name | ID | Owns |
 |---|---|---|
-| Bill | `a5404e88b42c69129` | `src/game/**` — rules engine |
-| Homer | `a19a40a6872d83adb` | `transport.ts`, `protocol.ts`, `wsTransport.ts`, `server/**` |
-| Goku | `ab27bd79adcca7c8e` | `rtcTransport.ts`, `signaling.ts`, `referee.ts` |
-| Mario | `a377f6e782c62dfba` | `Scene/Board/Table/Lighting/CameraRig` |
-| Garfield | `aacca3871733f9c6c` | `Piece.tsx`, `materials/**`, `geometry/**` |
-| Bender | `a73d9d7fc1b2fed59` | textures, `scripts/fetch-textures.mjs` |
-| Marvin | `a4a88a2fc4c3a4011` | `scene/animation/**` |
-| Howard | `af8c15b6768b97ef7` | `src/ui/**`, `src/store/**`, `App`/`main`/`index.html` |
-| Linus | `a78e0b322ec7de6d0` | `src/styles/**`, theme/breakpoint/safe-area hooks |
-| Charles | `a6d24039a5212c08f` | build, deploy, CI, README — **holds the build lock** |
-| Calvin | `a98444110db8bd1d9` | `e2e/**`, `playwright.config.ts` — end-to-end and device tests |
-| Milo | `a9105f4258ebc5241` | reporting — the dashboard. Not a code owner. |
-| **Arthur** | `a650dd36c969fd96a` | **UX review.** Owns `docs/UX.md` only. Check UX changes with him. |
+| Bill | — | `src/game/**` — rules engine |
+| Homer | `ac1dfac207c303d32` | `transport.ts`, `protocol.ts`, `wsTransport.ts`, **`index.ts`** (the factory), `server/**` |
+| Goku | `a53d975f59ed14319` | `rtcTransport.ts`, `signaling.ts`, `referee.ts`, **`localTransport.ts`** (+ one granted case-arm in `index.ts`) |
+| Mario | — | `Scene/Board/Table/Lighting/CameraRig` |
+| Garfield | — | `Piece.tsx`, `materials/**`, `geometry/**` |
+| Bender | — | textures, `scripts/fetch-textures.mjs` |
+| Marvin | — | `scene/animation/**` |
+| Howard | `a491307867bc00d82` | `src/ui/**`, `src/store/**`, `App`/`main`/`index.html` |
+| Linus | — | `src/styles/**`, theme/breakpoint/safe-area hooks |
+| Charles | `a4e26f127b21bd5f6` | build, deploy, CI, README, **PWA + app icon** — **holds the build lock** |
+| Calvin | — | `e2e/**`, `playwright.config.ts` — end-to-end and device tests |
+| Milo | — | reporting — the dashboard. Not a code owner. |
+| **Arthur** | `aca99db6fc242eb5a` | **UX review.** Owns `docs/UX.md` only. Check UX changes with him. |
 | **Bob** | `main` | director. Escalate here. |
 
 Good use: *"Goku — what exact shape is `RefereeHost`? I need to satisfy it."*
