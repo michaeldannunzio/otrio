@@ -1481,6 +1481,20 @@
  * two rules down says "Big. This is the control a thumb hits under time
  * pressure." 49 vs 107 is the argument.
  *
+ * AND THAT 1.33px IS UNDEFENDED, which is the stronger half of it. `.o-size`
+ * is `flex: 1 1 0` with **no `min-width`** — the 48px floor is enforced only
+ * as `min-height: calc(--hit-min + --space-4)`, i.e. vertically. Horizontally
+ * there is no floor at all, so nothing in the CSS holds these buttons at or
+ * above 48px or would report it if they went under. A row is therefore not
+ * merely tight, it is tight with no guard; a column has 58px of room to be
+ * wrong in. That is a robustness claim rather than a taste one, and unlike the
+ * rail evidence it needs no frame. (Charles found it; figures re-derived here
+ * independently and they match to the pixel.)
+ *
+ * Deliberately NOT fixed by adding `min-width: var(--hit-min)` here: that
+ * would change a shared control at every breakpoint and in both modes, and it
+ * is a wider change than this rule. Flagged to Bob instead.
+ *
  * Two structural signals agree, neither depending on a rendered frame:
  * `.o-sizes` carries `max-width: 30rem` and `margin-inline: auto`, both
  * permanently inert on an element clamped to half a phone and purposeful at
