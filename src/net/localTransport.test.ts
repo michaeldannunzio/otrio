@@ -559,6 +559,36 @@ describe('events', () => {
     expect(transitions).toHaveLength(2);
   });
 
+  /**
+   * Arthur's question, settled without a browser.
+   *
+   * The contract pins this backend's transitions as `idle → connecting →
+   * connected` (SINGLE-DEVICE BACKEND, and the diagram on `ConnectionStatus`),
+   * so `connecting` must be emitted — and `describeLink('connecting')` has
+   * `banner: true`, which raised the worry that "Connecting to the game…" could
+   * flash for a frame on a game that connects to nothing.
+   *
+   * It cannot, and the reason is structural rather than lucky:
+   * `ConnectionBanner` renders from the snapshot, and both transitions happen
+   * inside one `connect()` call which flushes once, at the end. So subscribers
+   * are notified exactly once and the snapshot they read already says
+   * `connected`. `connecting` exists only as an event payload, and events are
+   * decoration that no banner reads. If someone later flushes per transition,
+   * this test fails rather than the banner flickering on a phone.
+   */
+  it('never publishes a snapshot in the connecting state', async () => {
+    const transport = makeTransport(['Ann', 'Ben']);
+    const published: string[] = [];
+    transport.subscribe(() => published.push(transport.getSnapshot().status));
+
+    await transport.connect();
+    await transport.createRoom();
+
+    expect(published).not.toContain('connecting');
+    expect(published[0]).toBe('connected');
+    expect(transport.getSnapshot().status).toBe('connected');
+  });
+
   it('gives an event handler a snapshot that already reflects the event', async () => {
     const transport = await startedGame(['Ann', 'Ben']);
     let seatAtEvent: Seat | null = null;
